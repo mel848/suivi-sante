@@ -1,0 +1,15 @@
+{
+  "appId": "fr.suivisante.carnet",
+  "appName": "Suivi Santé",
+  "webDir": "www",
+  "backgroundColor": "#04061a",
+  "plugins": {
+    "LocalNotifications": {
+      "smallIcon": "ic_stat_pill",
+      "iconColor": "#6d7dff"
+    },
+    "CapacitorHttp": {
+      "enabled": true
+    }
+  }
+}
