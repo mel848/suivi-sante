@@ -1,0 +1,81 @@
+name: Construire l'APK
+
+# Se lance automatiquement à chaque modification du dépôt,
+# et manuellement via l'onglet Actions > "Construire l'APK" > "Run workflow".
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Récupérer le code
+        uses: actions/checkout@v4
+
+      - name: Installer Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Installer Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Installer les dépendances
+        run: npm install
+
+      - name: Préparer les fichiers de l'application
+        run: |
+          mkdir -p www
+          cp index.html style.css app.js logic.js native.js www/
+
+      - name: Créer le projet Android
+        run: npx cap add android
+
+      - name: Icône, sons de rappel et autorisations
+        run: |
+          cp -r resources/res/* android/app/src/main/res/
+          mkdir -p android/app/src/main/res/raw
+          cp sounds/*.wav android/app/src/main/res/raw/
+          M=android/app/src/main/AndroidManifest.xml
+          sed -i 's|<application|<uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>\n    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM"/>\n    <uses-permission android:name="android.permission.USE_EXACT_ALARM"/>\n    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>\n    <uses-permission android:name="android.permission.VIBRATE"/>\n    <application|' $M
+          grep -n "uses-permission" $M
+
+      - name: Numéroter la version (permet les mises à jour par-dessus)
+        run: |
+          sed -i "s/versionCode 1$/versionCode ${{ github.run_number }}/" android/app/build.gradle
+          sed -i "s/versionName \"1.0\"/versionName \"1.${{ github.run_number }}\"/" android/app/build.gradle
+          grep -n "versionCode\|versionName" android/app/build.gradle
+
+      - name: Utiliser la même clé de signature à chaque build
+        run: |
+          mkdir -p ~/.android
+          cp debug.keystore ~/.android/debug.keystore
+
+      - name: Copier l'application dans le projet Android
+        run: npx cap sync android
+
+      - name: Compiler l'APK
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+
+      - name: Nommer le fichier
+        run: cp android/app/build/outputs/apk/debug/app-debug.apk suivi-sante.apk
+
+      - name: Publier le lien de téléchargement
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ github.run_number }}
+          name: Suivi Santé v${{ github.run_number }}
+          body: "Télécharge le fichier suivi-sante.apk ci-dessous, puis ouvre-le sur ton téléphone Android."
+          files: suivi-sante.apk
+          make_latest: true
