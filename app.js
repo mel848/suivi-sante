@@ -1095,7 +1095,13 @@
       return h('div', { class: 'card' },
         h('h2', { text: 'Rappels sur ce téléphone' }),
         h('div', { class: 'notif-check' }, h('div', { class: 'nc-row ko' }, h('b', { text: '✕' }), h('span', { text: !SN
-          ? 'Le module de rappels du téléphone n’est pas chargé : aucune notification ne peut être programmée. Cela arrive dans un navigateur, ou si le fichier native.js de l’application n’est pas à jour.'
+          ? 'Le module de rappels du téléphone n’est pas démarré : aucune notification ne peut être programmée. ' + (function () {
+            var i = window.__nativeInfo, C = window.Capacitor;
+            if (!i) return 'Détail : le fichier native.js n’a pas été chargé par l’application (il manque dans l’APK : vérifie le workflow et index.html).';
+            if (!i.cap) return 'Détail : native.js est chargé mais l’application n’est pas reconnue comme une appli Android (Capacitor absent). Ouvre bien l’APK installé, pas un navigateur.';
+            if (!i.native) return 'Détail : native.js est chargé, mais la plateforme détectée est « ' + (i.platform || 'inconnue') + ' » au lieu d’Android.';
+            return 'Détail : le plugin de notifications n’a pas pu démarrer' + (i.err ? ' (' + i.err + ')' : '') + '. Il manque probablement dans l’APK : vérifie package.json (@capacitor/local-notifications).';
+          })()
           : 'Cette version de l’application contient un ancien module de rappels (fichier native.js pas à jour). Mets à jour native.js sur GitHub, puis réinstalle l’APK.' }))));
     }
     var out = h('div', { class: 'notif-check', 'aria-live': 'polite' });

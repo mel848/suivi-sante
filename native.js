@@ -3,9 +3,14 @@
 (function () {
   'use strict';
   var C = window.Capacitor;
-  if (!C || !C.isNativePlatform || !C.isNativePlatform()) return;
+  /* Renseigne l'écran « Rappels sur ce téléphone » (Réglages) si le module ne démarre pas */
+  var info = window.__nativeInfo = { loaded: true, cap: !!C, platform: '', native: false, err: '' };
+  if (!C) return;
+  try { info.platform = C.getPlatform ? String(C.getPlatform()) : ''; } catch (e) { /* sans importance */ }
+  try { info.native = !!(C.isNativePlatform && C.isNativePlatform()) || (!!info.platform && info.platform !== 'web'); } catch (e) { /* sans importance */ }
+  if (!info.native) return;
   var LN;
-  try { LN = C.registerPlugin('LocalNotifications'); } catch (e) { return; }
+  try { LN = C.registerPlugin('LocalNotifications'); } catch (e) { info.err = String(e && e.message || e); return; }
 
   var SOUNDS = ['carillon', 'doux', 'cloche', 'digital', 'radar'];
   var LABEL = { carillon: 'Carillon', doux: 'Doux', cloche: 'Cloche', digital: 'Digital', radar: 'Radar' };
