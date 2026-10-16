@@ -19,7 +19,7 @@
   var ready = null;
   var queue = Promise.resolve();
 
-  function channelFor(mode, sound) { return mode === 'sound' ? 'son_' + (SOUNDS.indexOf(sound) >= 0 ? sound : 'carillon') : 'silencieux'; }
+  function channelFor(mode, sound) { return mode === 'sound' ? 'rap_' + (SOUNDS.indexOf(sound) >= 0 ? sound : 'carillon') : 'silencieux'; }
 
   var lastErr = '';
   function note(e) { lastErr = (e && (e.message || e.errorMessage)) ? String(e.message || e.errorMessage) : String(e || ''); }
@@ -35,7 +35,10 @@
       ready = perm.then(function () {
         var jobs = [LN.createChannel({ id: 'silencieux', name: 'Rappels silencieux', description: 'Rappels sans son', importance: 2, visibility: 0, vibration: false })];
         SOUNDS.forEach(function (s) {
-          jobs.push(LN.createChannel({ id: 'son_' + s, name: 'Rappels avec son : ' + LABEL[s], description: 'Rappels avec le son « ' + LABEL[s] + ' »', importance: 4, visibility: 0, vibration: true, sound: s + '.wav' }));
+          /* importance 5 = alerte maximale : fenêtre qui s'affiche par-dessus l'écran ; visibilité 1 = contenu lisible sur l'écran de verrouillage */
+          jobs.push(LN.createChannel({ id: 'rap_' + s, name: 'Rappels de prise : ' + LABEL[s], description: 'Rappel bien visible avec le son « ' + LABEL[s] + ' »', importance: 5, visibility: 1, vibration: true, lights: true, sound: s + '.wav' }));
+          /* anciens canaux (réglage plus discret, non modifiable une fois créé) */
+          jobs.push(LN.deleteChannel ? LN.deleteChannel({ id: 'son_' + s }).catch(function () { /* sans importance */ }) : null);
         });
         jobs.push(LN.registerActionTypes({ types: [{ id: 'PRISE', actions: [{ id: 'fait', title: 'Fait' }, { id: 'reporter', title: 'Reporter' }] }] }));
         return Promise.all(jobs);
@@ -46,7 +49,7 @@
 
   function build(n, id, at) {
     var o = {
-      id: id, title: n.title, body: n.body, channelId: channelFor(n.mode, n.sound),
+      id: id, title: n.title, body: n.body, largeBody: n.body, channelId: channelFor(n.mode, n.sound),
       smallIcon: 'ic_stat_pill', iconColor: '#6d7dff',
       schedule: { at: new Date(at), allowWhileIdle: true }
     };

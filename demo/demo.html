@@ -2275,6 +2275,7 @@ body { max-width: var(--col); margin: 0 auto; box-shadow: 0 0 0 1px var(--line);
   ];
   var MEDS = [
     [/doliprane|paracetamol|dafalgan/, 'Doliprane'],
+    [/nefopam|acupan/, 'Nefopam'],
     [/ibuprofene|advil|nurofen|spedifen/, 'Ibuprofène'],
     [/spasfon/, 'Spasfon']
   ];
@@ -2867,7 +2868,7 @@ body { max-width: var(--col); margin: 0 auto; box-shadow: 0 0 0 1px var(--line);
     v = v || {};
     if (kind === 'pharmacy') return buildPharmacyFields(v);
     var nameLabels = { symptom: 'Symptôme', medication: 'Médicament', treatment: 'Médicament du traitement de fond', note: 'Titre' };
-    var placeholders = { symptom: 'Ex. Maux de tête', medication: 'Ex. Doliprane', treatment: 'Ex. Levothyrox', note: 'Ex. Mauvaise nuit' };
+    var placeholders = { symptom: 'Ex. Maux de tête', medication: 'Ex. Nefopam', treatment: 'Ex. Levothyrox', note: 'Ex. Mauvaise nuit' };
     var name = h('input', { type: 'text', id: 'f-name', value: v.name || '', autocomplete: 'off', placeholder: placeholders[kind], 'aria-label': nameLabels[kind] });
     var names = kind === 'note' ? [] : L.topNames(arrFor(kind), 8);
     var chips = names.length ? h('div', { class: 'chips' }, names.map(function (n) {
@@ -3304,8 +3305,8 @@ body { max-width: var(--col); margin: 0 auto; box-shadow: 0 0 0 1px var(--line);
 
   var SUGGESTIONS = [
     'J’ai mal à la tête depuis ce matin',
-    'J’ai pris du Doliprane il y a une heure',
-    'Mes nausées sont-elles liées à l’ibuprofène ?'
+    'J’ai pris du Nefopam',
+    'Un de mes symptômes est-il lié à un de mes traitements ?'
   ];
 
   /* Résumé du jour : prochaine prise, saisies du jour, renouvellement, stock bas */
@@ -3747,7 +3748,13 @@ body { max-width: var(--col); margin: 0 auto; box-shadow: 0 0 0 1px var(--line);
       return h('div', { class: 'card' },
         h('h2', { text: 'Rappels sur ce téléphone' }),
         h('div', { class: 'notif-check' }, h('div', { class: 'nc-row ko' }, h('b', { text: '✕' }), h('span', { text: !SN
-          ? 'Le module de rappels du téléphone n’est pas chargé : aucune notification ne peut être programmée. Cela arrive dans un navigateur, ou si le fichier native.js de l’application n’est pas à jour.'
+          ? 'Le module de rappels du téléphone n’est pas démarré : aucune notification ne peut être programmée. ' + (function () {
+            var i = window.__nativeInfo, C = window.Capacitor;
+            if (!i) return 'Détail : le fichier native.js n’a pas été chargé par l’application (il manque dans l’APK : vérifie le workflow et index.html).';
+            if (!i.cap) return 'Détail : native.js est chargé mais l’application n’est pas reconnue comme une appli Android (Capacitor absent). Ouvre bien l’APK installé, pas un navigateur.';
+            if (!i.native) return 'Détail : native.js est chargé, mais la plateforme détectée est « ' + (i.platform || 'inconnue') + ' » au lieu d’Android.';
+            return 'Détail : le plugin de notifications n’a pas pu démarrer' + (i.err ? ' (' + i.err + ')' : '') + '. Il manque probablement dans l’APK : vérifie package.json (@capacitor/local-notifications).';
+          })()
           : 'Cette version de l’application contient un ancien module de rappels (fichier native.js pas à jour). Mets à jour native.js sur GitHub, puis réinstalle l’APK.' }))));
     }
     var out = h('div', { class: 'notif-check', 'aria-live': 'polite' });

@@ -88,6 +88,7 @@
   ];
   var MEDS = [
     [/doliprane|paracetamol|dafalgan/, 'Doliprane'],
+    [/nefopam|acupan/, 'Nefopam'],
     [/ibuprofene|advil|nurofen|spedifen/, 'Ibuprofène'],
     [/spasfon/, 'Spasfon']
   ];
