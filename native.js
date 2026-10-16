@@ -10,7 +10,9 @@
   try { info.native = !!(C.isNativePlatform && C.isNativePlatform()) || (!!info.platform && info.platform !== 'web'); } catch (e) { /* sans importance */ }
   if (!info.native) return;
   var LN;
-  try { LN = C.registerPlugin('LocalNotifications'); } catch (e) { info.err = String(e && e.message || e); return; }
+  /* Sans outil de compilation, Capacitor ne fournit pas toujours registerPlugin : on prend alors le plugin déjà déclaré par l'application */
+  try { LN = C.registerPlugin ? C.registerPlugin('LocalNotifications') : (C.Plugins && C.Plugins.LocalNotifications); } catch (e) { info.err = String(e && e.message || e); }
+  if (!LN) { if (!info.err) info.err = 'plugin LocalNotifications introuvable'; return; }
 
   var SOUNDS = ['carillon', 'doux', 'cloche', 'digital', 'radar'];
   var LABEL = { carillon: 'Carillon', doux: 'Doux', cloche: 'Cloche', digital: 'Digital', radar: 'Radar' };

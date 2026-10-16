@@ -215,7 +215,7 @@
     v = v || {};
     if (kind === 'pharmacy') return buildPharmacyFields(v);
     var nameLabels = { symptom: 'Symptôme', medication: 'Médicament', treatment: 'Médicament du traitement de fond', note: 'Titre' };
-    var placeholders = { symptom: 'Ex. Maux de tête', medication: 'Ex. Doliprane', treatment: 'Ex. Levothyrox', note: 'Ex. Mauvaise nuit' };
+    var placeholders = { symptom: 'Ex. Maux de tête', medication: 'Ex. Nefopam', treatment: 'Ex. Levothyrox', note: 'Ex. Mauvaise nuit' };
     var name = h('input', { type: 'text', id: 'f-name', value: v.name || '', autocomplete: 'off', placeholder: placeholders[kind], 'aria-label': nameLabels[kind] });
     var names = kind === 'note' ? [] : L.topNames(arrFor(kind), 8);
     var chips = names.length ? h('div', { class: 'chips' }, names.map(function (n) {
@@ -652,8 +652,8 @@
 
   var SUGGESTIONS = [
     'J’ai mal à la tête depuis ce matin',
-    'J’ai pris du Doliprane il y a une heure',
-    'Mes nausées sont-elles liées à l’ibuprofène ?'
+    'J’ai pris du Nefopam',
+    'Un de mes symptômes est-il lié à un de mes traitements ?'
   ];
 
   /* Résumé du jour : prochaine prise, saisies du jour, renouvellement, stock bas */
