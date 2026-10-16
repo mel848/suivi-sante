@@ -1090,6 +1090,14 @@
 
   /* Rappels sur ce téléphone : état réel des autorisations et des rappels programmés */
   function notifCheckCard() {
+    var SN = window.SuiviNotif;
+    if (!SN || !SN.diagnose) {
+      return h('div', { class: 'card' },
+        h('h2', { text: 'Rappels sur ce téléphone' }),
+        h('div', { class: 'notif-check' }, h('div', { class: 'nc-row ko' }, h('b', { text: '✕' }), h('span', { text: !SN
+          ? 'Le module de rappels du téléphone n’est pas chargé : aucune notification ne peut être programmée. Cela arrive dans un navigateur, ou si le fichier native.js de l’application n’est pas à jour.'
+          : 'Cette version de l’application contient un ancien module de rappels (fichier native.js pas à jour). Mets à jour native.js sur GitHub, puis réinstalle l’APK.' }))));
+    }
     var out = h('div', { class: 'notif-check', 'aria-live': 'polite' });
     var card = h('div', { class: 'card' },
       h('h2', { text: 'Rappels sur ce téléphone' }),
@@ -1135,7 +1143,7 @@
           h('i', { style: 'background:' + a.c }), h('span', { text: a.name }));
       }))));
 
-    if (window.SuiviNotif && window.SuiviNotif.diagnose) frag.appendChild(notifCheckCard());
+    frag.appendChild(notifCheckCard());
 
     frag.appendChild(h('div', { class: 'card' },
       h('h2', { text: 'IA gratuite (Google Gemini)' }),
