@@ -353,6 +353,7 @@
         intensity: inten,
         duration: ev.type === 'symptom' && ev.duration ? String(ev.duration).trim() : '',
         dose: ev.dose ? String(ev.dose).trim() : '',
+        qty: ev.type === 'medication' && Number(ev.qty) > 0 ? Number(ev.qty) : null,
         detail: ev.detail ? String(ev.detail).trim() : '',
         ts: ts
       });
@@ -393,9 +394,9 @@
       "Réponds UNIQUEMENT avec un objet JSON : {\"reply\":\"...\",\"events\":[...]}\n" +
       "- \"reply\" : ta réponse à afficher dans le chat (1 à 3 phrases courtes, sans listes ni mise en forme).\n" +
       "- \"events\" : les entrées à proposer à l'enregistrement (liste vide si la personne pose une question ou discute simplement). Format de chaque entrée :\n" +
-      '  {"type":"symptom|medication|treatment|pharmacy|note","name":"...","intensity":0-10 ou null,"duration":"..." ou null,"dose":"..." ou null,"detail":"..." ou null,"when":"YYYY-MM-DDTHH:MM" ou null,"until":"YYYY-MM-DD" ou null,"mode":"continuous|intermittent" ou null}\n' +
+      '  {"type":"symptom|medication|treatment|pharmacy|note","name":"...","intensity":0-10 ou null,"duration":"..." ou null,"dose":"..." ou null,"qty":nombre ou null,"detail":"..." ou null,"when":"YYYY-MM-DDTHH:MM" ou null,"until":"YYYY-MM-DD" ou null,"mode":"continuous|intermittent" ou null}\n' +
       '  • symptom : symptôme ou douleur ressentie. "name" court (ex. "Maux de tête"). "intensity" sur 10 seulement si elle est donnée. "duration" si elle est dite (ex. "2 h", "toute la matinée"). "detail" pour une précision utile.\n' +
-      '  • medication : médicament pris ponctuellement (en plus du traitement de fond). "dose" si dite (ex. "1 g", "2 comprimés"). "detail" pour la raison de la prise si elle est dite.\n' +
+      '  • medication : médicament pris ponctuellement (en plus du traitement de fond). "dose" si dite (ex. "1 g", "2 comprimés"). "qty" = nombre de comprimés, gélules ou sachets pris (ex. 2) si le nombre est dit, sinon null. "detail" pour la raison de la prise si elle est dite.\n' +
       '  • treatment : CHANGEMENT du traitement de fond (début, arrêt, nouvelle dose, changement de molécule). "name" = médicament, "detail" = ce qui change (ex. "de 10 mg à 20 mg", "arrêt").\n' +
       '  • pharmacy : passage à la pharmacie pour renouveler ou récupérer le traitement. "name" = "Passage à la pharmacie", "detail" = "mensuelle" ou "trimestrielle" si la personne le précise.\n' +
       '  • note : toute autre information utile au suivi (sommeil, stress, repas, activité, rendez-vous médical). "name" = titre très court, "detail" = le texte.\n' +
@@ -531,6 +532,7 @@
       slots: p.slots || [],
       steps: p.steps && p.steps.length ? p.steps : [{ until: '', doses: {} }],
       stock: p.stock || null,
+      every: p.every || null,
       sideEffects: p.sideEffects || [],
       note: p.note || ''
     };
@@ -547,10 +549,59 @@
     return null;
   }
 
+  /* Prise intermittente : drug.every = { n, unit: 'days'|'weeks'|'months'|'years', from: 'AAAA-MM-JJ' } */
+  var EVERY_UNITS = { days: 'jour', weeks: 'semaine', months: 'mois', years: 'an' };
+  function cleanEvery(e) {
+    if (!e || typeof e !== 'object') return null;
+    var n = Math.floor(Number(e.n));
+    if (!isFinite(n) || n < 1 || !EVERY_UNITS[e.unit] || parseYmd(e.from) == null) return null;
+    return { n: Math.min(n, 999), unit: e.unit, from: e.from };
+  }
+  function dueOn(drug, dayTs) {
+    var e = cleanEvery(drug && drug.every);
+    if (!e) return true;
+    var a = startOfDay(parseYmd(e.from)), d = startOfDay(dayTs);
+    if (d < a) return false;
+    if (e.unit === 'days' || e.unit === 'weeks') {
+      var step = e.n * (e.unit === 'weeks' ? 7 : 1);
+      return Math.round((d - a) / DAYMS) % step === 0;
+    }
+    var A = new Date(a), D = new Date(d);
+    var months = (D.getFullYear() - A.getFullYear()) * 12 + D.getMonth() - A.getMonth();
+    if (months < 0 || months % (e.n * (e.unit === 'years' ? 12 : 1)) !== 0) return false;
+    var last = new Date(D.getFullYear(), D.getMonth() + 1, 0).getDate();
+    return D.getDate() === Math.min(A.getDate(), last);
+  }
+  function everyText(drug) {
+    var e = cleanEvery(drug && drug.every);
+    if (!e) return '';
+    var plural = { days: 'jours', weeks: 'semaines', months: 'mois', years: 'ans' };
+    if (e.n === 1) return e.unit === 'weeks' ? 'toutes les semaines' : 'tous les ' + plural[e.unit].replace('jours', 'jours').replace('ans', 'ans');
+    return 'tous les ' + e.n + ' ' + plural[e.unit];
+  }
+
+  /* Prochaine prise d'un traitement intermittent (timestamp du jour) ou null.
+     Aujourd'hui compte tant que les prises du jour ne sont pas toutes confirmées (« Fait ») ou que l'heure n'est pas passée sans confirmation. */
+  function nextDose(drug, now, data) {
+    if (!cleanEvery(drug && drug.every)) return null;
+    var today = startOfDay(now);
+    for (var i = 0; i < 4000; i++) {
+      var day = addDays(today, i);
+      if (!activeStep(drug, day) && i > 0) return null;
+      if (!dueOn(drug, day)) continue;
+      if (i === 0) {
+        var slots = (drug.slots || []).filter(function (k) { return dosesOn(drug, day)[k] > 0; });
+        if (slots.length && slots.every(function (k) { return takenOn(data, k, day); })) continue;
+      }
+      return day;
+    }
+    return null;
+  }
+
   function dosesOn(drug, dayTs) {
     var st = activeStep(drug, dayTs);
     var out = {};
-    if (!st) return out;
+    if (!st || !dueOn(drug, dayTs)) return out;
     (drug.slots || []).forEach(function (k) {
       var n = Number(st.doses && st.doses[k]);
       if (isFinite(n) && n > 0) out[k] = n;
@@ -565,30 +616,83 @@
   }
 
   /* Médicaments d'une prise un jour donné : [{ drug, dose }] */
+  /* Prise confirmée (« Fait ») : le stock des traitements réguliers diminue déjà tout seul selon la posologie,
+     la confirmation sert donc au suivi et n'est pas retirée une seconde fois */
+  function takenOn(data, slot, dayTs) {
+    var day = startOfDay(dayTs), list = (data && data.taken) || [];
+    for (var i = 0; i < list.length; i++) if (list[i].slot === slot && list[i].day === day) return list[i];
+    return null;
+  }
+  function markTaken(data, slot, dayTs, ts) {
+    data.taken = data.taken || [];
+    var ex = takenOn(data, slot, dayTs);
+    if (ex) return ex;
+    var rec = { id: uid(), slot: slot, day: startOfDay(dayTs), ts: ts || Date.now() };
+    data.taken.push(rec);
+    var cut = startOfDay(Date.now()) - 120 * DAYMS;
+    data.taken = data.taken.filter(function (x) { return x.day >= cut; });
+    return rec;
+  }
+  function unmarkTaken(data, slot, dayTs) {
+    var day = startOfDay(dayTs);
+    data.taken = (data.taken || []).filter(function (x) { return !(x.slot === slot && x.day === day); });
+  }
+
   function slotDrugs(data, slot, dayTs) {
     var out = [];
     (data.drugs || []).forEach(function (d) {
       var dose = dosesOn(d, dayTs)[slot];
-      if (dose > 0) out.push({ drug: d, dose: dose });
+      var st = activeStep(d, dayTs);
+      if (dose > 0) out.push({ drug: d, dose: dose, label: (st && st.dose) || '' });
     });
     return out;
   }
 
   /* Stock estimé au début de la journée de ts (consommation comptée jusqu'à la veille) */
-  function stockAt(drug, ts) {
+  /* Nombre de comprimés d'une prise notée (champ qty, sinon « 2 comprimés » dans la dose, sinon 1) */
+  function medQty(m) {
+    var q = Number(m && m.qty);
+    if (isFinite(q) && q > 0) return q;
+    var t = String((m && m.dose) || '').toLowerCase();
+    var x = /(\d+(?:[.,]\d+)?)\s*(comprim|gélule|gelule|gél|cp\b|sachet|ampoule|gélules)/.exec(t);
+    if (x) { var n = Number(x[1].replace(',', '.')); if (isFinite(n) && n > 0) return n; }
+    return 1;
+  }
+
+  /* Médicament de la liste « Traitements » qui correspond à un nom saisi (ex. « Doliprane 1000 » -> Doliprane) */
+  function matchDrug(data, name) {
+    var k = normName(name);
+    if (!k) return null;
+    var list = (data && data.drugs) || [], i;
+    for (i = 0; i < list.length; i++) if (normName(list[i].name) === k) return list[i];
+    for (i = 0; i < list.length; i++) { var dn = normName(list[i].name); if (dn.length >= 4 && k.indexOf(dn + ' ') === 0) return list[i]; }
+    return null;
+  }
+
+  /* Prises « si besoin » notées depuis la dernière mise à jour du stock : elles s'ajoutent à la posologie régulière */
+  function loggedIntake(drug, data, from, to) {
+    var t = 0;
+    ((data && data.meds) || []).forEach(function (m) {
+      if (m.ts >= from && m.ts <= to && matchDrug({ drugs: [drug] }, m.name)) t += medQty(m);
+    });
+    return t;
+  }
+
+  function stockAt(drug, ts, data) {
     var s = drug && drug.stock;
     if (!s || s.count == null || !isFinite(Number(s.count))) return null;
     var left = Number(s.count);
     var end = startOfDay(ts);
     for (var d = addDays(startOfDay(s.asOf), 1); d < end; d = addDays(d, 1)) left -= dailyDose(drug, d);
+    if (data) left -= loggedIntake(drug, data, s.asOf, ts);
     return Math.max(0, Math.round(left * 100) / 100);
   }
 
   /* { remaining, daysLeft (null si pas de prise régulière), lastDay, ended, low } ou null si stock inconnu */
-  function stockInfo(drug, now) {
-    var rem = stockAt(drug, now);
+  function stockInfo(drug, now, data) {
+    var rem = stockAt(drug, now, data);
     if (rem == null) return null;
-    var left = rem, today = startOfDay(now), days = 0, ended = false, regular = false, limit = 400, i;
+    var left = rem, today = startOfDay(now), days = 0, lastIdx = -1, ended = false, regular = false, limit = 400, i;
     for (i = 0; i < limit; i++) {
       var day = addDays(today, i);
       if (!activeStep(drug, day)) { ended = true; break; }
@@ -597,9 +701,10 @@
       regular = true;
       if (left < need) break;
       left -= need;
-      days++;
+      lastIdx = i;
     }
-    if (!regular) return { remaining: rem, daysLeft: null, lastDay: null, ended: ended, low: false };
+    days = lastIdx + 1;
+    if (!regular) return { remaining: rem, daysLeft: null, lastDay: null, ended: ended, low: rem <= 5 };
     return {
       remaining: rem,
       daysLeft: days,
@@ -622,11 +727,11 @@
     var steps = drug.steps || [];
     if (!drug.slots || !drug.slots.length) return 'Pas de prise régulière';
     var parts = steps.map(function (st) {
-      var t = dosesText(st.doses, drug.slots) || 'aucune dose';
+      var t = st.dose ? st.dose + ' ' + drug.slots.map(function (k) { return SLOT_SHORT[k]; }).join(' + ') : (dosesText(st.doses, drug.slots) || 'aucune dose');
       var u = st.until ? parseYmd(st.until) : null;
       return t + (u != null ? ' jusqu’au ' + fmtDay(u) : '');
     });
-    return parts.join(', puis ');
+    return parts.join(', puis ') + (cleanEvery(drug.every) ? ', ' + everyText(drug) : '');
   }
 
   /* ---------- Ordonnances et rappels de pharmacie ---------- */
@@ -678,8 +783,9 @@
         var list = slotDrugs(data, k, day);
         var body = !list.length ? 'Aucun médicament dans cette prise.'
           : cfg.hideNames ? 'C’est l’heure de ta ' + SLOT_NAME[k].toLowerCase() + '.'
-          : list.map(function (x) { return x.drug.name + ' ' + fmtNum(x.dose); }).join(' · ');
-        out.push({ kind: 'slot', slot: k, ts: ts, title: SLOT_NAME[k], body: body, mode: cfg.mode, sound: cfg.sound, repeat: cfg.repeat || 0 });
+          : list.map(function (x) { return x.drug.name + ' ' + (x.label || fmtNum(x.dose)); }).join(' · ');
+        out.push({ kind: 'slot', slot: k, ts: ts, title: SLOT_NAME[k], body: body, mode: cfg.mode, sound: cfg.sound, repeat: cfg.repeat || 0,
+          extra: { kind: 'slot', slot: k, day: day, key: k + ':' + day, title: SLOT_NAME[k], body: body, mode: cfg.mode, sound: cfg.sound } });
       }
     });
     var ps = data.pharmacySettings || defaultPharmacySettings();
@@ -955,10 +1061,10 @@
 
   function emptyData() {
     return {
-      symptoms: [], meds: [], changes: [], pharmacy: [], notes: [],
+      symptoms: [], meds: [], changes: [], pharmacy: [], notes: [], taken: [],
       diseases: [], drugs: [], medInfo: {}, causes: {},
       slots: defaultSlots(), pharmacySettings: defaultPharmacySettings(),
-      settings: { windowHours: 6, model: 'gemini-2.5-flash' }
+      settings: { windowHours: 6, model: 'gemini-3.5-flash-lite' }
     };
   }
 
@@ -981,6 +1087,10 @@
         return y;
       });
     });
+    if (Array.isArray(obj.taken)) {
+      d.taken = obj.taken.filter(function (x) { return x && SLOT_KEYS.indexOf(x.slot) >= 0 && isFinite(Number(x.day)) && isFinite(Number(x.ts)); })
+        .map(function (x) { return { id: x.id || uid(), slot: x.slot, day: Number(x.day), ts: Number(x.ts) }; });
+    }
     if (Array.isArray(obj.diseases)) {
       d.diseases = obj.diseases.filter(function (x) { return x && String(x.name || '').trim(); }).map(function (x) {
         var y = copyObj(x);
@@ -997,6 +1107,7 @@
         y.diseaseIds = Array.isArray(x.diseaseIds) ? x.diseaseIds.slice() : [];
         y.slots = (Array.isArray(x.slots) ? x.slots : []).filter(function (k) { return SLOT_KEYS.indexOf(k) >= 0; });
         y.sideEffects = cleanList(x.sideEffects, 30);
+        y.every = cleanEvery(x.every);
         if (!(y.stock && isFinite(Number(y.stock.count)) && isFinite(Number(y.stock.asOf)))) y.stock = null;
         return y;
       });
@@ -1055,7 +1166,16 @@
     activeStep: activeStep,
     dosesOn: dosesOn,
     dailyDose: dailyDose,
+    dueOn: dueOn,
+    cleanEvery: cleanEvery,
+    everyText: everyText,
+    nextDose: nextDose,
     slotDrugs: slotDrugs,
+    takenOn: takenOn,
+    markTaken: markTaken,
+    unmarkTaken: unmarkTaken,
+    medQty: medQty,
+    matchDrug: matchDrug,
     stockAt: stockAt,
     stockInfo: stockInfo,
     dosesText: dosesText,

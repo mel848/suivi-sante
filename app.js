@@ -124,7 +124,8 @@
     spark: '<path d="M12 3.5l1.9 5.4 5.4 1.9-5.4 1.9L12 18.1l-1.9-5.4-5.4-1.9 5.4-1.9z"/><path d="M19 3v3M17.5 4.5h3"/>',
     bell: '<path d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 2h-15z"/><path d="M10 21h4"/>',
     calendar: '<rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/>',
-    chart: '<path d="M4 19V9M10 19V5M16 19v-7M21 19H3"/>'
+    chart: '<path d="M4 19V9M10 19V5M16 19v-7M21 19H3"/>',
+    check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>'
   };
 
   function icon(name, cls) {
@@ -174,6 +175,7 @@
       if (it.duration && !L.isPeriod(kind, it)) parts.push('Durée ' + it.duration);
     } else if (kind === 'medication') {
       if (it.dose) parts.push(it.dose);
+      if (it.qty > 0 && !/comprim|gélule|gelule|cp\b/.test(String(it.dose || '').toLowerCase())) parts.push(L.fmtNum(it.qty) + (it.qty > 1 ? ' comprimés' : ' comprimé'));
     } else if (kind === 'treatment') {
       if (it.how) parts.push(it.how);
       if (it.detail && it.detail !== it.how) parts.push(it.detail);
@@ -226,7 +228,7 @@
     ];
 
     var intensity = v.intensity != null ? v.intensity : null;
-    var duration, dose, note, how, detail, text;
+    var duration, dose, qty, note, how, detail, text;
 
     if (kind === 'symptom') {
       var scale = h('div', { class: 'scale', role: 'group', 'aria-label': 'Intensité de 0 à 10' });
@@ -252,6 +254,12 @@
     } else if (kind === 'medication') {
       dose = h('input', { type: 'text', id: 'f-dose', value: v.dose || '', placeholder: 'Ex. 1 g ou 2 comprimés', 'aria-label': 'Dose' });
       els.push(h('label', { class: 'field' }, h('span', { class: 'lbl', text: 'Dose (facultatif)' }), dose));
+      qty = h('input', { type: 'number', id: 'f-qty', inputmode: 'decimal', min: '0', step: 'any', value: v.qty != null ? String(v.qty) : '', placeholder: '1', 'aria-label': 'Nombre de comprimés pris' });
+      els.push(h('div', { class: 'field' }, h('span', { class: 'lbl', text: 'Nombre de comprimés pris (retiré de ton stock)' }),
+        h('span', { class: 'stepper' },
+          h('button', { type: 'button', class: 'step-btn', 'aria-label': 'Moins', text: '−', onclick: function (e) { e.preventDefault(); var n = num(qty.value); qty.value = String(Math.max(0, Math.round(((n == null ? 1 : n) - 0.5) * 4) / 4)); } }),
+          qty,
+          h('button', { type: 'button', class: 'step-btn', 'aria-label': 'Plus', text: '+', onclick: function (e) { e.preventDefault(); var n = num(qty.value); qty.value = String(Math.round(((n == null ? 1 : n) + 0.5) * 4) / 4); } }))));
       note = h('input', { type: 'text', id: 'f-note', value: v.note || '', placeholder: 'Ex. pris pour la migraine', 'aria-label': 'Raison de la prise' });
       els.push(h('label', { class: 'field' }, h('span', { class: 'lbl', text: 'Raison de la prise (facultatif)' }), note));
     } else if (kind === 'treatment') {
@@ -299,7 +307,7 @@
             else { out.endTs = Math.min(eTs + 23 * 3600000 + 59 * 60000, Date.now()); out.mode = pMode; }
           }
         }
-        else if (kind === 'medication') { out.dose = dose.value.trim(); out.note = note.value.trim(); }
+        else if (kind === 'medication') { out.dose = dose.value.trim(); out.qty = num(qty.value); out.note = note.value.trim(); }
         else if (kind === 'treatment') { out.how = how.value; out.detail = detail.value.trim(); }
         else { out.text = text.value.trim(); }
         return out;
@@ -374,7 +382,7 @@
             else {
               if (editing) Object.assign(item, vals);
               else { vals.id = L.uid(); arrFor(kind).push(vals); if (kind === 'pharmacy') applyPharmacyStock(vals); ui.selDay = startOfDay(vals.ts); ui.month = { y: new Date(vals.ts).getFullYear(), m: new Date(vals.ts).getMonth() }; }
-              if (save()) toast(editing ? 'Modifié.' : 'Enregistré.');
+              if (save()) toast((editing ? 'Modifié.' : 'Enregistré.') + (kind === 'medication' ? stockNote([vals.name]) : ''));
             }
             closeSheet();
             render();
@@ -400,6 +408,7 @@
       row('Précisions', item.note);
     } else if (kind === 'medication') {
       row('Dose', item.dose);
+      row('Comprimés pris', item.qty != null ? L.fmtNum(item.qty) : '');
       row('Raison de la prise', item.note);
     } else if (kind === 'treatment') {
       row('Type de changement', item.how);
@@ -443,7 +452,7 @@
     if (e && e.status === 429) return 'Quota gratuit atteint pour le moment. Réessaie plus tard, ou utilise la saisie rapide.';
     if (e && (e.status === 400 && /api key|API_KEY/i.test(m))) return 'Clé invalide. Vérifie-la dans Réglages.';
     if (e && e.status === 403) return 'Clé refusée par Google. Vérifie-la dans Réglages.';
-    if (e && e.status === 404) return 'Modèle introuvable. Remets « gemini-2.5-flash » dans Réglages.';
+    if (e && e.status === 404) return 'Aucun modèle Gemini disponible avec ta clé. Dans Réglages > Options avancées, écris « gemini-3.5-flash-lite ».';
     if (e && e.status >= 500) return 'Le service de Google est indisponible. Réessaie dans un moment.';
     if (e && e.status) return 'L’IA a renvoyé une erreur (' + e.status + ').';
     if (e && e.name === 'TypeError') return 'Pas de connexion internet.';
@@ -451,10 +460,44 @@
   }
 
   /* contents : un texte, ou une liste de messages [{role, parts:[{text}]}] */
+  var DEFAULT_MODEL = 'gemini-3.5-flash-lite';
+  var FALLBACK_MODELS = ['gemini-3.5-flash-lite', 'gemini-3.8-flash', 'gemini-3.1-flash-lite', 'gemini-2.5-flash'];
+
+  /* Réflexion réduite au minimum : les réponses arrivent en quelques secondes au lieu de plusieurs minutes */
+  function thinkingFor(model) {
+    if (/^gemini-2\.5/.test(model)) return { thinkingBudget: 0 };
+    if (/flash-lite|3\.6-flash|3-flash/.test(model)) return { thinkingLevel: 'minimal' };
+    return { thinkingLevel: 'low' };
+  }
+
+  /* Essaie le modèle choisi ; s'il n'existe plus (404), passe aux suivants et retient celui qui marche */
   function callGemini(system, contents, wantJson) {
+    var chosen = (data.settings.model || DEFAULT_MODEL).trim();
+    var list = [chosen].concat(FALLBACK_MODELS.filter(function (m) { return m !== chosen; }));
+    var i = 0;
+    function next() {
+      return callGeminiModel(list[i], system, contents, wantJson).then(function (txt) {
+        if (list[i] !== chosen) { data.settings.model = list[i]; save(); }
+        return txt;
+      }, function (e) {
+        if (e && e.status === 404 && i < list.length - 1) { i++; return next(); }
+        throw e;
+      });
+    }
+    return next();
+  }
+
+  function callGeminiModel(model, system, contents, wantJson) {
+    return callGeminiRaw(model, system, contents, wantJson, true).catch(function (e) {
+      /* réglage de réflexion refusé par ce modèle : on réessaie sans */
+      if (e && e.status === 400) return callGeminiRaw(model, system, contents, wantJson, false);
+      throw e;
+    });
+  }
+
+  function callGeminiRaw(model, system, contents, wantJson, fast) {
     var key = getKey();
     if (!key) return Promise.reject(new Error('NOKEY'));
-    var model = (data.settings.model || 'gemini-2.5-flash').trim();
     var url = 'https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(model) + ':generateContent';
     if (typeof contents === 'string') contents = [{ role: 'user', parts: [{ text: contents }] }];
     var body = {
@@ -463,6 +506,7 @@
       generationConfig: { temperature: wantJson ? 0.3 : 0.4 }
     };
     if (wantJson) body.generationConfig.responseMimeType = 'application/json';
+    if (fast) body.generationConfig.thinkingConfig = thinkingFor(model);
 
     var ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
     var timer = setTimeout(function () { if (ctrl) ctrl.abort(); }, 45000);
@@ -522,7 +566,7 @@
   function eventToVals(ev) {
     var v = { name: ev.name, ts: ev.ts };
     if (ev.type === 'symptom') { v.intensity = ev.intensity != null ? ev.intensity : null; v.duration = ev.duration || ''; v.note = ev.detail || ''; v.endTs = ev.endTs || null; v.mode = ev.mode || null; }
-    else if (ev.type === 'medication') { v.dose = ev.dose || ''; v.note = ev.detail || ''; }
+    else if (ev.type === 'medication') { v.dose = ev.dose || ''; v.qty = ev.qty != null ? ev.qty : null; v.note = ev.detail || ''; }
     else if (ev.type === 'treatment') { v.how = ev.how || guessHow(ev.detail || ''); v.detail = ev.detail || ''; }
     else if (ev.type === 'pharmacy') { v.rx = ev.rx || (/trimestr|3 mois|90/.test(L.normName(ev.detail || '')) ? 'quarterly' : 'monthly'); v.items = ev.items || []; v.note = ''; }
     else { v.text = ev.detail || ''; }
@@ -532,7 +576,7 @@
   function applyVals(ev, vals) {
     ev.name = vals.name; ev.ts = vals.ts;
     if (ev.type === 'symptom') { ev.intensity = vals.intensity; ev.duration = vals.duration; ev.detail = vals.note; ev.endTs = vals.endTs || null; ev.mode = vals.mode || null; }
-    else if (ev.type === 'medication') { ev.dose = vals.dose; ev.detail = vals.note; }
+    else if (ev.type === 'medication') { ev.dose = vals.dose; ev.qty = vals.qty != null ? vals.qty : null; ev.detail = vals.note; }
     else if (ev.type === 'treatment') { ev.how = vals.how; ev.detail = vals.detail; }
     else if (ev.type === 'pharmacy') { ev.rx = vals.rx; ev.items = vals.items; ev.detail = vals.note; }
     else { ev.detail = vals.text; }
@@ -553,7 +597,7 @@
     var lastTs = pend.length ? pend[pend.length - 1].ts : Date.now();
     ui.selDay = startOfDay(lastTs);
     ui.month = { y: new Date(lastTs).getFullYear(), m: new Date(lastTs).getMonth() };
-    if (save()) toast(pend.length + (pend.length > 1 ? ' entrées enregistrées.' : ' entrée enregistrée.'));
+    if (save()) toast(pend.length + (pend.length > 1 ? ' entrées enregistrées.' : ' entrée enregistrée.') + stockNote(pend.filter(function (e) { return e.type === 'medication'; }).map(function (e) { return e.name; })));
     saveChat();
     render();
   }
@@ -630,23 +674,30 @@
     }
     if (next) {
       rows.push({ ico: icon(next.slot === 'morning' ? 'sun' : next.slot === 'noon' ? 'noon' : 'moon', 'neutral'), title: L.SLOT_NAME[next.slot] + ' · ' + fmtTime(next.ts),
-        sub: next.list.map(function (x) { return x.drug.name + ' ' + L.fmtNum(x.dose); }).join(' · '), tab: 'treatments' });
+        sub: next.list.map(function (x) { return x.drug.name + ' ' + (x.label || L.fmtNum(x.dose)); }).join(' · '), tab: 'treatments' });
     }
 
     var map = L.entriesByDay(data), td = map[today];
     rows.push({ ico: icon('calendar', 'neutral'), title: 'Aujourd’hui', sub: td ? countsLabel(td.counts) : 'Rien de noté pour le moment', tab: 'calendar' });
+
+    L.SLOT_KEYS.some(function (k) {
+      var cfg = data.slots[k];
+      if (!cfg.enabled || L.atTime(today, cfg.time) > now || L.takenOn(data, k, today) || !L.slotDrugs(data, k, today).length) return false;
+      rows.push({ ico: icon('check', 'neutral'), title: L.SLOT_NAME[k] + ' à confirmer', sub: 'Touche pour la marquer comme faite', run: function () { markSlotDone(k, today); } });
+      return true;
+    });
 
     var rem = L.pharmacyReminders(data, now)[0];
     if (rem) {
       rows.push({ ico: kindIcon('pharmacy'), title: rem.due ? 'Renouvellement possible dès maintenant' : 'Renouvellement ' + (rem.daysLeft === 1 ? 'demain' : 'dans ' + rem.daysLeft + ' jours'),
         sub: rem.label + ' · le ' + L.fmtDay(rem.day), tab: 'treatments' });
     }
-    var low = data.drugs.map(function (d) { return { d: d, s: L.stockInfo(d, now) }; }).filter(function (x) { return x.s && x.s.low; })[0];
-    if (low) rows.push({ ico: icon('medication', 'neutral'), title: 'Stock bas : ' + low.d.name, sub: low.s.daysLeft === 0 ? 'À renouveler maintenant' : 'Il reste environ ' + low.s.daysLeft + (low.s.daysLeft > 1 ? ' jours' : ' jour'), tab: 'treatments' });
+    var low = data.drugs.map(function (d) { return { d: d, s: L.stockInfo(d, now, data) }; }).filter(function (x) { return x.s && x.s.low; })[0];
+    if (low) rows.push({ ico: icon('medication', 'neutral'), title: 'Stock bas : ' + low.d.name, sub: low.s.daysLeft == null ? 'Il reste ' + L.fmtNum(low.s.remaining) + (low.s.remaining > 1 ? ' comprimés' : ' comprimé') : low.s.daysLeft === 0 ? 'À renouveler maintenant' : 'Il reste environ ' + low.s.daysLeft + (low.s.daysLeft > 1 ? ' jours' : ' jour'), tab: 'treatments' });
 
     var card = h('div', { class: 'card today' });
     rows.forEach(function (r) {
-      card.appendChild(h('button', { class: 'today-row', type: 'button', onclick: function () { go(r.tab); } },
+      card.appendChild(h('button', { class: 'today-row', type: 'button', onclick: function () { if (r.run) r.run(); else go(r.tab); } },
         r.ico, h('span', { class: 'tx' }, h('span', { class: 'tt', text: r.title }), h('span', { class: 'ts', text: r.sub }))));
     });
     return card;
@@ -944,12 +995,14 @@
     }
 
     /* 6. Stock des traitements */
-    var stocks = data.drugs.map(function (d) { return { d: d, s: L.stockInfo(d, now) }; }).filter(function (x) { return x.s; });
+    var stocks = data.drugs.map(function (d) { return { d: d, s: L.stockInfo(d, now, data) }; }).filter(function (x) { return x.s; });
     if (stocks.length) {
-      var c6 = chartCard('Stock des traitements', 'Jours restants, estimés');
-      stocks.sort(function (a, b) { return a.s.daysLeft - b.s.daysLeft; }).forEach(function (x) {
+      var c6 = chartCard('Stock des traitements', 'Jours restants (traitement régulier) ou comprimés (si besoin), estimés');
+      function sv(x) { return x.s.daysLeft != null ? x.s.daysLeft : x.s.remaining; }
+      stocks.sort(function (a, b) { return (b.s.low - a.s.low) || (sv(a) - sv(b)); }).forEach(function (x) {
         c6.appendChild(h('div', { class: 'hbar' + (x.s.low ? ' low' : '') }, h('span', { class: 'hl', text: x.d.name }),
-          h('div', { class: 'track' }, h('i', { style: 'width:' + Math.max(4, Math.min(100, Math.round(x.s.daysLeft / 30 * 100))) + '%' })), h('b', { text: x.s.daysLeft + ' j' })));
+          h('div', { class: 'track' }, h('i', { style: 'width:' + Math.max(4, Math.min(100, Math.round(sv(x) / 30 * 100))) + '%' })),
+          h('b', { text: x.s.daysLeft != null ? x.s.daysLeft + ' j' : L.fmtNum(x.s.remaining) + ' cp' })));
       });
       frag.appendChild(c6);
     }
@@ -1035,11 +1088,42 @@
 
   /* ---------- Onglet : Réglages ---------- */
 
+  /* Rappels sur ce téléphone : état réel des autorisations et des rappels programmés */
+  function notifCheckCard() {
+    var out = h('div', { class: 'notif-check', 'aria-live': 'polite' });
+    var card = h('div', { class: 'card' },
+      h('h2', { text: 'Rappels sur ce téléphone' }),
+      h('p', { class: 'small muted', text: 'Si tu ne reçois pas tes rappels, appuie sur « Vérifier » : je regarde les autorisations et les rappels réellement programmés.' }),
+      out);
+    var fmt = function (ts) { return new Date(ts).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' }) + ' à ' + fmtTime(ts); };
+    function row(ok, text) { return h('div', { class: 'nc-row ' + (ok ? 'ok' : 'ko') }, h('b', { text: ok ? '✓' : '✕' }), h('span', { text: text })); }
+    function check() {
+      out.textContent = 'Vérification…';
+      return Promise.resolve(window.SuiviNotif.schedule(L.upcomingNotifications(data, Date.now(), 7)))
+        .then(function () { return new Promise(function (r) { setTimeout(r, 400); }); })
+        .then(function () { return window.SuiviNotif.diagnose(); })
+        .then(function (d) {
+          out.textContent = '';
+          out.appendChild(row(d.perm === 'granted', d.perm === 'granted' ? 'Notifications autorisées' : 'Notifications NON autorisées : appuie sur « Autoriser » ou active-les dans les réglages du téléphone (Applis > Suivi Santé > Notifications).'));
+          if (d.exact) out.appendChild(row(d.exact === 'granted', d.exact === 'granted' ? 'Alarmes précises autorisées' : 'Alarmes précises NON autorisées : les rappels peuvent arriver en retard. Appuie sur « Alarmes précises ».'));
+          var n = d.pending.filter(function (x) { return x.at > Date.now(); });
+          out.appendChild(row(n.length > 0, n.length ? n.length + ' rappel' + (n.length > 1 ? 's' : '') + ' programmé' + (n.length > 1 ? 's' : '') + '. Prochain : ' + n[0].title + ', ' + fmt(n[0].at) : 'Aucun rappel programmé : vérifie que « Me rappeler cette prise » est activé dans Traitements.'));
+          if (d.err) out.appendChild(row(false, 'Erreur du système : ' + d.err));
+          out.appendChild(h('p', { class: 'small muted', text: 'Si tout est vert mais que rien ne sonne : dans les réglages du téléphone, mets Suivi Santé en « batterie : sans restriction » (Applis > Suivi Santé > Batterie), car certains téléphones endorment les applis.' }));
+        }).catch(function (e) { out.textContent = 'Vérification impossible : ' + (e && e.message || e); });
+    }
+    card.appendChild(h('div', { class: 'actions wrap' },
+      h('button', { class: 'btn primary', type: 'button', text: 'Vérifier', onclick: check }),
+      h('button', { class: 'btn', type: 'button', text: 'Autoriser', onclick: function () { window.SuiviNotif.askPermission().then(check); } }),
+      h('button', { class: 'btn', type: 'button', text: 'Alarmes précises', onclick: function () { window.SuiviNotif.askExact(); } })));
+    return card;
+  }
+
   function viewSettings() {
     var frag = h('div');
 
     var keyInput = h('input', { type: 'password', id: 's-key', value: getKey(), autocomplete: 'off', placeholder: 'Colle ta clé ici', 'aria-label': 'Clé API Gemini' });
-    var modelInput = h('input', { type: 'text', id: 's-model', value: data.settings.model || 'gemini-2.5-flash', autocomplete: 'off', 'aria-label': 'Modèle' });
+    var modelInput = h('input', { type: 'text', id: 's-model', value: data.settings.model || DEFAULT_MODEL, autocomplete: 'off', 'aria-label': 'Modèle' });
 
     frag.appendChild(h('div', { class: 'card' },
       h('h2', { text: 'Apparence' }),
@@ -1050,6 +1134,8 @@
           onclick: function () { data.settings.ambiance = a.id; save(); applyAmbiance(); render(); } },
           h('i', { style: 'background:' + a.c }), h('span', { text: a.name }));
       }))));
+
+    if (window.SuiviNotif && window.SuiviNotif.diagnose) frag.appendChild(notifCheckCard());
 
     frag.appendChild(h('div', { class: 'card' },
       h('h2', { text: 'IA gratuite (Google Gemini)' }),
@@ -1068,7 +1154,7 @@
         h('button', {
           class: 'btn primary', type: 'button', text: 'Enregistrer', onclick: function () {
             try { localStorage.setItem(KEYSTORE, keyInput.value.trim()); } catch (e) { toast('Impossible d’enregistrer la clé.'); return; }
-            data.settings.model = modelInput.value.trim() || 'gemini-2.5-flash';
+            data.settings.model = modelInput.value.trim() || DEFAULT_MODEL;
             save();
             toast('Réglages enregistrés.');
           }
@@ -1076,7 +1162,7 @@
         h('button', {
           class: 'btn', type: 'button', text: 'Tester', onclick: function () {
             try { localStorage.setItem(KEYSTORE, keyInput.value.trim()); } catch (e) { /* ignoré */ }
-            data.settings.model = modelInput.value.trim() || 'gemini-2.5-flash';
+            data.settings.model = modelInput.value.trim() || DEFAULT_MODEL;
             save();
             toast('Test en cours…');
             callGemini('Réponds uniquement par le mot : OK', 'Test', false)
@@ -1099,7 +1185,7 @@
 
     /* Sauvegarde */
     var exportBox = h('textarea', { readonly: true, id: 's-export', 'aria-label': 'Sauvegarde', style: 'min-height:80px' });
-    exportBox.value = JSON.stringify({ symptoms: data.symptoms, meds: data.meds, changes: data.changes, pharmacy: data.pharmacy, notes: data.notes, diseases: data.diseases, drugs: data.drugs, medInfo: data.medInfo, slots: data.slots, pharmacySettings: data.pharmacySettings, settings: { windowHours: data.settings.windowHours } });
+    exportBox.value = JSON.stringify({ taken: data.taken, symptoms: data.symptoms, meds: data.meds, changes: data.changes, pharmacy: data.pharmacy, notes: data.notes, diseases: data.diseases, drugs: data.drugs, medInfo: data.medInfo, slots: data.slots, pharmacySettings: data.pharmacySettings, settings: { windowHours: data.settings.windowHours } });
     var importBox = h('textarea', { id: 's-import', placeholder: 'Colle ici une sauvegarde à importer', 'aria-label': 'Importer une sauvegarde', style: 'min-height:80px' });
 
     frag.appendChild(h('div', { class: 'card' },
@@ -1130,7 +1216,7 @@
           var d = L.normalizeImported(parsed);
           if (!d) { toast('Ce texte n’est pas une sauvegarde valide.'); return; }
           var added = 0;
-          ['symptoms', 'meds', 'changes', 'pharmacy', 'notes', 'diseases', 'drugs'].forEach(function (k) {
+          ['symptoms', 'meds', 'changes', 'pharmacy', 'notes', 'diseases', 'drugs', 'taken'].forEach(function (k) {
             var have = {};
             data[k].forEach(function (x) { have[x.id] = 1; });
             d[k].forEach(function (x) { if (!have[x.id]) { data[k].push(x); added++; } });
@@ -1147,7 +1233,7 @@
       h('button', {
         class: 'btn danger block', type: 'button', text: 'Effacer toutes mes données', onclick: function () {
           if (!window.confirm('Effacer définitivement toutes les entrées de ce téléphone ? Pense à copier ta sauvegarde avant.')) return;
-          data.symptoms = []; data.meds = []; data.changes = []; data.pharmacy = []; data.notes = []; data.diseases = []; data.drugs = []; data.medInfo = {}; data.causes = {};
+          data.taken = []; data.symptoms = []; data.meds = []; data.changes = []; data.pharmacy = []; data.notes = []; data.diseases = []; data.drugs = []; data.medInfo = {}; data.causes = {};
           save();
           render();
           toast('Données effacées.');
@@ -1275,6 +1361,35 @@
     if (n.mode === 'sound') playSound(n.sound);
   }
 
+  /* Boutons de la notification de rappel : « Fait » et « Reporter » (10, 20 ou 30 min) */
+  function markSlotDone(slot, day, silent) {
+    L.markTaken(data, slot, day, Date.now());
+    if (window.SuiviNotif && window.SuiviNotif.cancelKey) { try { window.SuiviNotif.cancelKey(slot + ':' + L.startOfDay(day)); } catch (e) { /* sans importance */ } }
+    if (save() && !silent) toast(L.SLOT_NAME[slot] + ' : notée comme faite.');
+    render();
+  }
+
+  function openSnooze(extra) {
+    var body = h('div', null,
+      h('p', { class: 'small muted', text: L.SLOT_NAME[extra.slot] + ' : le rappel reviendra après ce délai.' }),
+      h('div', { class: 'snooze' }, [10, 20, 30].map(function (m) {
+        return h('button', { class: 'btn', type: 'button', text: 'Dans ' + m + ' min', onclick: function () {
+          if (window.SuiviNotif && window.SuiviNotif.snooze) window.SuiviNotif.snooze(extra, m);
+          closeSheet(); toast('Rappel reporté de ' + m + ' min.');
+        } });
+      })),
+      h('div', { class: 'actions' }, h('button', { class: 'btn', type: 'button', text: 'Annuler', onclick: closeSheet })));
+    openSheet('Reporter le rappel', body);
+  }
+
+  function handleNotifAction(actionId, extra) {
+    if (!extra || extra.kind !== 'slot' || L.SLOT_KEYS.indexOf(extra.slot) < 0) return;
+    if (actionId === 'fait') { removeSheet(); markSlotDone(extra.slot, extra.day || Date.now()); go('treatments'); }
+    else if (actionId === 'reporter') openSnooze(extra);
+  }
+  window.__suiviNotifAction = handleNotifAction;
+  window.addEventListener('suivi-notif-action', function (e) { handleNotifAction(e.detail.actionId, e.detail.extra); });
+
   function scheduleNotifications() {
     if (window.SuiviNotif && window.SuiviNotif.schedule) {
       try { window.SuiviNotif.schedule(L.upcomingNotifications(data, Date.now(), 7)); } catch (e) { /* sans importance */ }
@@ -1356,12 +1471,25 @@
     };
   }
 
+  /* Après une prise « si besoin » : stock restant du médicament, s'il est suivi dans Traitements */
+  function stockNote(names) {
+    var out = [], seen = {};
+    names.forEach(function (n) {
+      var d = L.matchDrug(data, n);
+      if (!d || seen[d.id]) return;
+      seen[d.id] = 1;
+      var s = L.stockInfo(d, Date.now(), data);
+      if (s) out.push(d.name + ' : il reste ' + L.fmtNum(s.remaining) + (s.remaining > 1 ? ' comprimés' : ' comprimé'));
+    });
+    return out.length ? ' ' + out.join(' · ') + '.' : '';
+  }
+
   /* Ajoute au stock les comprimés récupérés (une seule fois, à l'enregistrement du passage) */
   function applyPharmacyStock(vals) {
     (vals.items || []).forEach(function (it) {
       var d = data.drugs.filter(function (x) { return x.id === it.drugId; })[0];
       if (!d || !(it.qty > 0)) return;
-      var base = L.stockAt(d, vals.ts);
+      var base = L.stockAt(d, vals.ts, data);
       var asOf = d.stock && d.stock.asOf > vals.ts ? d.stock.asOf : vals.ts;
       d.stock = { count: (base || 0) + it.qty, asOf: asOf };
     });
@@ -1512,7 +1640,7 @@
   function doseLabel(n) { return L.fmtNum(n) + (n > 1 ? ' comprimés' : ' comprimé'); }
 
   function stockLine(d, now) {
-    var s = L.stockInfo(d, now);
+    var s = L.stockInfo(d, now, data);
     if (!s) return { text: 'Stock non renseigné', low: false };
     var t = L.fmtNum(s.remaining) + (s.remaining > 1 ? ' comprimés' : ' comprimé') + ' (estimation)';
     if (s.daysLeft != null) {
@@ -1546,8 +1674,15 @@
       list.forEach(function (x) {
         card.appendChild(h('div', { class: 'slot-line' },
           h('span', { class: 'nm', text: x.drug.name + (x.drug.strength ? ' ' + x.drug.strength : '') }),
-          h('span', { class: 'small muted', text: doseLabel(x.dose) })));
+          h('span', { class: 'small muted', text: x.label || doseLabel(x.dose) })));
       });
+      if (list.length) {
+        var done = L.takenOn(data, k, today);
+        card.appendChild(done
+          ? h('div', { class: 'slot-done' }, icon('check', 'sm'), h('span', { text: 'Faite à ' + fmtTime(done.ts) }),
+              h('button', { class: 'btn small', type: 'button', text: 'Annuler', onclick: function () { L.unmarkTaken(data, k, today); save(); render(); } }))
+          : h('button', { class: 'btn small block', type: 'button', style: 'margin-top:8px', text: 'Marquer comme faite', onclick: function () { markSlotDone(k, today); } }));
+      }
       card.appendChild(h('div', { class: 'slot-foot' },
         h('span', { class: 'small muted', text: cfg.notify ? '🔔 Rappel ' + MODE_LABEL[cfg.mode] + (cfg.repeat ? ', répété' : '') : 'Pas de rappel' }),
         h('button', { class: 'btn small', type: 'button', text: 'Régler', onclick: function () { openSlotSettings(k); } })));
@@ -1567,11 +1702,16 @@
             d.action ? h('div', { class: 'small muted', text: d.action }) : null)));
       var dn = diseaseNames(d.diseaseIds);
       if (dn.length) card.appendChild(h('div', { class: 'small muted', text: 'Pour : ' + dn.join(', ') }));
-      card.appendChild(h('div', { class: 'small', style: 'margin-top:6px', text: 'Prises : ' + L.posologyText(d) }));
+      card.appendChild(h('div', { class: 'small', style: 'margin-top:6px', text: d.slots.length ? 'Prises : ' + L.posologyText(d) : L.cleanEvery(d.every) ? 'Prise ' + L.everyText(d) + ' (choisis le moment de la journée pour activer rappels et stock)' : 'Pris si besoin : chaque prise notée retire du stock.' }));
+      if (L.cleanEvery(d.every)) {
+        var nd = L.nextDose(d, now, data), dd = nd == null ? null : Math.round((nd - L.startOfDay(now)) / 86400000);
+        card.appendChild(h('div', { class: 'next-dose', text: nd == null ? 'Prochaine prise : traitement terminé' : 'Prochaine prise le : ' + fmtDayLong(nd) + (dd === 0 ? ' (aujourd’hui)' : dd === 1 ? ' (demain)' : '') }));
+      }
       if (d.steps.length > 1) card.appendChild(h('div', { class: 'small muted', text: 'Prise progressive en ' + d.steps.length + ' étapes' }));
-      var si = L.stockInfo(d, now);
-      if (si && si.daysLeft != null) {
-        card.appendChild(h('div', { class: 'meter' + (st.low ? ' low' : ''), 'aria-hidden': 'true' }, h('i', { style: 'width:' + Math.max(4, Math.min(100, Math.round(si.daysLeft / 30 * 100))) + '%' })));
+      var si = L.stockInfo(d, now, data);
+      if (si) {
+        var mv = si.daysLeft != null ? si.daysLeft : si.remaining;
+        card.appendChild(h('div', { class: 'meter' + (st.low ? ' low' : ''), 'aria-hidden': 'true' }, h('i', { style: 'width:' + Math.max(4, Math.min(100, Math.round(mv / 30 * 100))) + '%' })));
       }
       card.appendChild(h('div', { class: 'stock' + (st.low ? ' low' : ''), text: (st.low ? '⚠ ' : '') + st.text }));
       frag.appendChild(card);
@@ -1646,8 +1786,10 @@
       notifBox,
       h('div', { class: 'actions' },
         h('button', { class: 'btn', type: 'button', text: 'Tester', onclick: function () {
-          var list = inSlot.length ? inSlot.map(function (x) { return x.drug.name + ' ' + L.fmtNum(x.dose); }).join(' · ') : 'Exemple de rappel';
-          showNotification({ title: L.SLOT_NAME[key], body: cfg.hideNames ? 'C’est l’heure de ta ' + L.SLOT_NAME[key].toLowerCase() + '.' : list, mode: cfg.mode, sound: sound.value });
+          var list = inSlot.length ? inSlot.map(function (x) { return x.drug.name + ' ' + (x.label || L.fmtNum(x.dose)); }).join(' · ') : 'Exemple de rappel';
+          var td = L.startOfDay(Date.now());
+          showNotification({ title: L.SLOT_NAME[key], body: cfg.hideNames ? 'C’est l’heure de ta ' + L.SLOT_NAME[key].toLowerCase() + '.' : list, mode: cfg.mode, sound: sound.value,
+            kind: 'slot', slot: key, extra: { kind: 'slot', slot: key, day: td, key: key + ':' + td, title: L.SLOT_NAME[key], body: list, mode: cfg.mode, sound: sound.value } });
         } }),
         h('button', {
           class: 'btn primary', type: 'button', text: 'Enregistrer', onclick: function () {
@@ -1695,9 +1837,11 @@
     var d = item ? JSON.parse(JSON.stringify(item)) : L.newDrug(prefill || {});
     var now = Date.now();
     var slots = d.slots.slice();
-    var steps = d.steps.map(function (s) { return { until: s.until || '', doses: Object.assign({}, s.doses) }; });
+    var steps = d.steps.map(function (s) { return { until: s.until || '', doses: Object.assign({}, s.doses), dose: s.dose || '' }; });
     var mode = steps.length > 1 ? 'progressive' : 'fixed';
     var diseaseIds = d.diseaseIds.slice();
+    var every = L.cleanEvery(d.every) || { n: 2, unit: 'days', from: L.ymd(Date.now()) };
+    var everyOn = !!L.cleanEvery(d.every);
 
     var name = h('input', { type: 'text', id: 'm-name', value: d.name, placeholder: 'Ex. Sertraline', autocomplete: 'off', 'aria-label': 'Nom du médicament' });
     /* Dosage : nombre + unité sur le côté (g en haut, mg par défaut, µg) */
@@ -1724,7 +1868,7 @@
       return h('button', { type: 'button', class: 'chip', text: a, onclick: function () { action.value = a; } });
     }));
     var side = tagEditor(d.sideEffects, 'Ajouter un effet (ex. nausées)', 'Nouvel effet indésirable');
-    var initialStock = item ? L.stockAt(item, now) : null;
+    var initialStock = item ? L.stockAt(item, now, data) : null;
     var stock = h('input', { type: 'number', id: 'm-stock', inputmode: 'decimal', min: '0', step: '1', value: initialStock != null ? String(initialStock) : '', placeholder: 'Ex. 28', 'aria-label': 'Comprimés restants' });
     var note = h('textarea', { id: 'm-note', placeholder: 'Ex. à prendre avec un repas', 'aria-label': 'Notes', style: 'min-height:64px' });
     note.value = d.note;
@@ -1791,6 +1935,19 @@
       });
       return row;
     }
+    /* Prise progressive : on indique la dose (ex. 25 mg), en comptant une gélule par prise */
+    function doseAmountInput(st) {
+      var m = /^\s*([0-9]+(?:[.,][0-9]+)?)\s*(.*?)\s*$/.exec(st.dose || '');
+      var sm2 = /^\s*[0-9.,]+\s*(.*?)\s*$/.exec(strength.get() || '');
+      var u0 = m ? (m[2] === 'mcg' ? 'µg' : m[2]) : (sm2 && sm2[1]) || 'mg';
+      var numI = h('input', { type: 'number', inputmode: 'decimal', min: '0', step: 'any', value: m ? m[1].replace(',', '.') : '', placeholder: 'Ex. 25', 'aria-label': 'Dose de cette étape' });
+      var us = h('select', { 'aria-label': 'Unité de la dose' }, UNITS.concat(UNITS.indexOf(u0) < 0 ? [u0] : []).map(function (u) {
+        var o = h('option', { value: u, text: u }); if (u === u0) o.selected = true; return o;
+      }));
+      function upd() { var n = numI.value.trim(); st.dose = n === '' ? '' : n.replace('.', ',') + ' ' + us.value; }
+      numI.addEventListener('input', upd); us.addEventListener('change', upd);
+      return h('div', { class: 'strength-row' }, numI, us);
+    }
     function drawPoso() {
       poso.textContent = '';
       var chips = h('div', { class: 'chips' });
@@ -1810,8 +1967,8 @@
       }
       poso.appendChild(field('Posologie', segmented([['fixed', 'Dose fixe'], ['progressive', 'Prise progressive']], mode, function (v) {
         mode = v;
-        if (mode === 'fixed') steps = [{ until: '', doses: steps[0].doses }];
-        else if (steps.length < 2) { steps[0].until = L.ymd(L.addDays(Date.now(), 14)); steps.push({ until: '', doses: Object.assign({}, steps[0].doses) }); }
+        if (mode === 'fixed') steps = [{ until: '', doses: steps[0].doses, dose: '' }];
+        else if (steps.length < 2) { steps[0].until = L.ymd(L.addDays(Date.now(), 14)); steps.push({ until: '', doses: Object.assign({}, steps[0].doses), dose: steps[0].dose || '' }); }
         drawPoso();
       })));
       if (mode === 'fixed') {
@@ -1826,7 +1983,7 @@
           steps.length > 2 || !last ? h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Retirer l’étape ' + (i + 1), text: '✕', onclick: function () {
             steps.splice(i, 1); steps[steps.length - 1].until = ''; if (steps.length < 2) mode = 'fixed'; drawPoso();
           } }) : null));
-        card.appendChild(doseInputs(st));
+        card.appendChild(field('Dose par prise', doseAmountInput(st), 'Compté comme une gélule par prise pour le stock.'));
         if (!last) {
           var u = h('input', { type: 'date', value: st.until, 'aria-label': 'Jusqu’au (inclus)' });
           u.addEventListener('input', function () { st.until = u.value; });
@@ -1838,12 +1995,34 @@
         var prev = steps[steps.length - 1];
         var lastDated = steps.length > 1 ? L.parseYmd(steps[steps.length - 2].until) : null;
         prev.until = L.ymd(L.addDays(lastDated != null ? lastDated : Date.now(), 14));
-        steps.push({ until: '', doses: Object.assign({}, prev.doses) });
+        steps.push({ until: '', doses: Object.assign({}, prev.doses), dose: '' });
         drawPoso();
       } }));
     }
     ensureDoses();
     drawPoso();
+
+    /* Prise intermittente : « tous les [n] [jours|semaines|mois|ans] » */
+    var everyBox = h('div', { class: 'every-box' });
+    function drawEvery() {
+      everyBox.textContent = '';
+      var cb = h('input', { type: 'checkbox', id: 'm-every-on', checked: everyOn });
+      cb.addEventListener('change', function () { everyOn = cb.checked; drawEvery(); });
+      everyBox.appendChild(h('label', { class: 'check-row' }, cb, h('span', { text: 'Prise intermittente' })));
+      if (!everyOn) return;
+      var n = h('input', { type: 'number', id: 'm-every-n', inputmode: 'numeric', min: '1', max: '999', step: '1', value: String(every.n), 'aria-label': 'Nombre', class: 'every-n' });
+      n.addEventListener('input', function () { var v = Math.floor(Number(n.value)); if (isFinite(v) && v >= 1) every.n = v; });
+      var u = h('select', { id: 'm-every-unit', 'aria-label': 'Unité' });
+      [['days', 'jours'], ['weeks', 'semaines'], ['months', 'mois'], ['years', 'ans']].forEach(function (o) {
+        var op = h('option', { value: o[0], text: o[1] }); if (o[0] === every.unit) op.selected = true; u.appendChild(op);
+      });
+      u.addEventListener('change', function () { every.unit = u.value; });
+      var from = h('input', { type: 'date', id: 'm-every-from', value: every.from, 'aria-label': 'Première prise le' });
+      from.addEventListener('input', function () { if (from.value) every.from = from.value; });
+      everyBox.appendChild(h('div', { class: 'every-row' }, h('span', { text: 'Tous les' }), n, u));
+      everyBox.appendChild(field('Prise de référence (une prise a lieu ce jour-là)', from, 'Le stock et les rappels suivent ce rythme.'));
+    }
+    drawEvery();
 
     function save1() {
       var nm = name.value.trim();
@@ -1852,8 +2031,9 @@
       if (other && (!editing || other.id !== item.id)) { toast('Ce traitement existe déjà.'); return; }
       var cleaned = steps.map(function (st) {
         var doses = {};
-        slots.forEach(function (k) { doses[k] = st.doses[k] != null ? st.doses[k] : 0; });
-        return { until: st.until || '', doses: doses };
+        var withDose = mode === 'progressive' && st.dose;
+        slots.forEach(function (k) { doses[k] = withDose ? 1 : (st.doses[k] != null ? st.doses[k] : 0); });
+        return { until: st.until || '', doses: doses, dose: mode === 'progressive' ? (st.dose || '') : '' };
       });
       if (mode === 'progressive' && slots.length) {
         var prevU = null;
@@ -1864,12 +2044,14 @@
           prevU = u;
         }
         cleaned[cleaned.length - 1].until = '';
-      } else cleaned = [{ until: '', doses: cleaned[0].doses }];
+      } else cleaned = [{ until: '', doses: cleaned[0].doses, dose: '' }];
       var vals = {
         name: nm, strength: strength.get(), action: action.value.trim(), diseaseIds: diseaseIds.slice(),
         slots: slots.slice(), steps: cleaned, sideEffects: side.get(), note: note.value.trim(),
-        stock: item ? item.stock : null
+        stock: item ? item.stock : null,
+        every: everyOn ? L.cleanEvery(every) : null
       };
+      if (everyOn && !vals.every) { toast('Indique un nombre de 1 ou plus.'); return; }
       var sv = num(stock.value);
       if (stock.value.trim() === '') vals.stock = null;
       else if (sv != null && sv !== initialStock) vals.stock = { count: sv, asOf: Date.now() };
@@ -1886,9 +2068,10 @@
       field('Action du médicament (facultatif)', h('div', null, action, actionChips)),
       field('Pour quelle(s) maladie(s) ? (facultatif)', diseaseBox),
       poso,
+      everyBox,
       field('Comprimés que j’ai (facultatif)', h('div', null, stock, h('div', { class: 'chips quick-qty' }, [14, 28, 30, 56, 60, 90].map(function (n) {
         return h('button', { type: 'button', class: 'chip', text: String(n), onclick: function () { stock.value = String(n); } });
-      }))), 'Le stock diminue tout seul selon ta posologie : c’est une estimation. Corrige-le quand tu recomptes.'),
+      }))), 'Le stock diminue tout seul selon ta posologie et à chaque prise « si besoin » que tu notes (nombre de comprimés pris) : c’est une estimation. Corrige-le quand tu recomptes.'),
       field('Effets indésirables possibles (facultatif)', side.el, 'Utilisés pour repérer si un symptôme que tu notes pourrait venir de ce médicament.'),
       field('Notes (facultatif)', note),
       h('div', { class: 'actions' },
@@ -2032,6 +2215,7 @@
   });
 
   window.__suiviResched = scheduleNotifications;
+  (window.__suiviPending || []).splice(0).forEach(function (p) { handleNotifAction(p.actionId, p.extra); });
   applyAmbiance();
   buildQuickAdd();
   render();

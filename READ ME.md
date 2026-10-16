@@ -1,4 +1,3 @@
-# suivi-sante
 # Suivi Santé : obtenir ton lien APK avec GitHub
 
 Durée : environ 15 minutes, sans rien installer. Tout se fait dans le navigateur

@@ -879,3 +879,26 @@ h3.with-ico, .nm.with-ico { display: flex; align-items: center; gap: 10px; min-w
 [data-ambiance="nuit"] .cal-cell.k-pharmacy { background: color-mix(in srgb, var(--pha) 16%, #080d2a); border-color: color-mix(in srgb, var(--pha) 38%, transparent); }
 [data-ambiance="nuit"] .cal-cell.k-note { background: color-mix(in srgb, var(--note) 15%, #080d2a); border-color: color-mix(in srgb, var(--note) 38%, transparent); }
 [data-ambiance="nuit"] .cal-cell.per { background: color-mix(in srgb, var(--sym) 26%, #080d2a); }
+
+/* Prise faite / reporter */
+.slot-done { display: flex; align-items: center; gap: 8px; margin-top: 8px; color: var(--ok); font-weight: 650; }
+.slot-done span:not(.ico) { flex: 1; }
+.snooze { display: flex; flex-direction: column; gap: 10px; margin: 8px 0 14px; }
+.snooze .btn { min-height: 52px; font-size: 1.05rem; }
+
+/* Prise intermittente */
+.every-box { margin: 4px 0 14px; }
+.check-row { display: flex; align-items: center; gap: 12px; padding: 10px 0; cursor: pointer; font-weight: 600; }
+.check-row input { width: 22px; height: 22px; margin: 0; accent-color: var(--accent); flex: none; }
+.every-row { display: flex; align-items: center; gap: 10px; margin: 4px 0 10px; }
+.every-row .every-n { width: 84px; flex: none; text-align: center; }
+.every-row select { flex: 1; min-width: 0; }
+
+.next-dose { margin-top: 8px; padding: 8px 12px; border-radius: 12px; font-weight: 700; font-size: .92rem; background: color-mix(in srgb, var(--accent) 16%, transparent); border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent); }
+
+.notif-check { margin: 8px 0 12px; }
+.nc-row { display: flex; gap: 10px; align-items: flex-start; padding: 6px 0; font-size: .93rem; }
+.nc-row b { flex: none; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-size: .8rem; }
+.nc-row.ok b { background: color-mix(in srgb, #3ecf8e 25%, transparent); color: #3ecf8e; }
+.nc-row.ko b { background: color-mix(in srgb, #ff6b6b 25%, transparent); color: #ff6b6b; }
+.actions.wrap { flex-wrap: wrap; }
