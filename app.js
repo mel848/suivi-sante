@@ -2229,6 +2229,7 @@
   });
 
   window.__suiviResched = scheduleNotifications;
+  window.addEventListener('suivi-notif-error', function (ev) { toast('Rappel impossible : ' + ((ev && ev.detail && ev.detail.detail) || 'erreur du système') + '. Ouvre Réglages > Rappels sur ce téléphone.'); });
   (window.__suiviPending || []).splice(0).forEach(function (p) { handleNotifAction(p.actionId, p.extra); });
   applyAmbiance();
   buildQuickAdd();

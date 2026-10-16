@@ -45,8 +45,18 @@ jobs:
           mkdir -p android/app/src/main/res/raw
           cp sounds/*.wav android/app/src/main/res/raw/
           M=android/app/src/main/AndroidManifest.xml
-          sed -i 's|<application|<uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>\n    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM"/>\n    <uses-permission android:name="android.permission.USE_EXACT_ALARM"/>\n    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>\n    <uses-permission android:name="android.permission.VIBRATE"/>\n    <application|' $M
+          sed -i 's|<application|<uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>\n    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM"/>\n    <uses-permission android:name="android.permission.USE_EXACT_ALARM"/>\n    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>\n    <uses-permission android:name="android.permission.VIBRATE"/>\n    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT"/>\n    <uses-permission android:name="android.permission.WAKE_LOCK"/>\n    <application|' $M
+          sed -i '0,/<activity /s|<activity |<activity android:showWhenLocked="true" android:turnScreenOn="true" |' $M
           grep -n "uses-permission" $M
+          grep -n "showWhenLocked" $M || echo "ATTENTION: affichage sur l'écran verrouillé non appliqué"
+
+      - name: Rappels plein écran sur l'écran de verrouillage
+        run: |
+          F=$(find node_modules/@capacitor/local-notifications/android -name LocalNotificationManager.java | head -1)
+          echo "fichier : $F"
+          grep -n "setContentIntent" "$F" || true
+          sed -i 's|mBuilder.setContentIntent(pendingIntent);|mBuilder.setContentIntent(pendingIntent); mBuilder.setFullScreenIntent(pendingIntent, true);|' "$F"
+          grep -n "setFullScreenIntent" "$F" || echo "ATTENTION: patch plein écran non appliqué"
 
       - name: Numéroter la version (permet les mises à jour par-dessus)
         run: |
