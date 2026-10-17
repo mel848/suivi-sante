@@ -46,12 +46,24 @@
     return Promise.all([perm, ready]);
   }
 
+  /* Notification plus grande : titre en majuscules, un médicament par ligne, texte déplié (BigText) */
+  function bigText(n) {
+    var body = String(n.body || '');
+    if (n.kind !== 'slot') return body;
+    var parts = body.split(' · ');
+    var isList = parts.length > 1 || /\d/.test(body);
+    var lines = isList ? parts.map(function (p) { return '• ' + p; }).join('\n') : body;
+    return lines + '\n\nAppuie sur « Fait » quand c’est pris.';
+  }
+
   function build(n, id, at) {
+    var slot = n.kind === 'slot';
     var o = {
-      id: id, title: n.title, body: n.body, channelId: channelFor(n.mode, n.sound),
+      id: id, title: slot ? '🧬 ' + String(n.title || '').toUpperCase() : n.title, body: n.body, channelId: channelFor(n.mode, n.sound),
       smallIcon: 'ic_stat_pill', iconColor: '#6d7dff',
       schedule: { at: new Date(at), allowWhileIdle: true }
     };
+    if (slot) { o.largeBody = bigText(n); o.summaryText = 'Suivi Santé'; }
     if (n.kind === 'slot' && n.extra) { o.actionTypeId = 'PRISE'; o.extra = n.extra; }
     return o;
   }
