@@ -1379,7 +1379,7 @@
   function markSlotDone(slot, day, silent) {
     L.markTaken(data, slot, day, Date.now());
     if (window.SuiviNotif && window.SuiviNotif.cancelKey) { try { window.SuiviNotif.cancelKey(slot + ':' + L.startOfDay(day)); } catch (e) { /* sans importance */ } }
-    if (save() && !silent) toast(L.SLOT_NAME[slot] + ' : notée comme faite.');
+    if (save() && !silent) toast(L.SLOT_NAME[slot] + ' : notée comme faite.' + stockNote(L.slotDrugs(data, slot, day).map(function (x) { return x.drug.name; })));
     render();
   }
 
@@ -2085,7 +2085,7 @@
       everyBox,
       field('Comprimés que j’ai (facultatif)', h('div', null, stock, h('div', { class: 'chips quick-qty' }, [14, 28, 30, 56, 60, 90].map(function (n) {
         return h('button', { type: 'button', class: 'chip', text: String(n), onclick: function () { stock.value = String(n); } });
-      }))), 'Le stock diminue tout seul selon ta posologie et à chaque prise « si besoin » que tu notes (nombre de comprimés pris) : c’est une estimation. Corrige-le quand tu recomptes.'),
+      }))), 'Le stock diminue à chaque prise que tu valides avec « Fait » et à chaque prise « si besoin » que tu notes (nombre de comprimés pris). Une prise non validée n’est pas retirée. Corrige-le quand tu recomptes.'),
       field('Effets indésirables possibles (facultatif)', side.el, 'Utilisés pour repérer si un symptôme que tu notes pourrait venir de ce médicament.'),
       field('Notes (facultatif)', note),
       h('div', { class: 'actions' },

@@ -616,8 +616,7 @@
   }
 
   /* Médicaments d'une prise un jour donné : [{ drug, dose }] */
-  /* Prise confirmée (« Fait ») : le stock des traitements réguliers diminue déjà tout seul selon la posologie,
-     la confirmation sert donc au suivi et n'est pas retirée une seconde fois */
+  /* Prise confirmée (« Fait ») : une fois par prise et par jour ; c'est elle qui fait baisser le stock des traitements réguliers */
   function takenOn(data, slot, dayTs) {
     var day = startOfDay(dayTs), list = (data && data.taken) || [];
     for (var i = 0; i < list.length; i++) if (list[i].slot === slot && list[i].day === day) return list[i];
@@ -629,7 +628,7 @@
     if (ex) return ex;
     var rec = { id: uid(), slot: slot, day: startOfDay(dayTs), ts: ts || Date.now() };
     data.taken.push(rec);
-    var cut = startOfDay(Date.now()) - 120 * DAYMS;
+    var cut = startOfDay(Date.now()) - 400 * DAYMS;
     data.taken = data.taken.filter(function (x) { return x.day >= cut; });
     return rec;
   }
@@ -678,13 +677,27 @@
     return t;
   }
 
+  /* Stock = comprimés connus à la date du stock, moins les prises CONFIRMÉES (« Fait ») depuis, moins les prises « si besoin » notées.
+     Une prise non confirmée n'est pas retirée : on la suppose oubliée plutôt que prise. */
+  function takenAmount(drug, data, dayTs, from) {
+    var day = startOfDay(dayTs), doses = dosesOn(drug, day), t = 0;
+    Object.keys(doses).forEach(function (k) {
+      var rec = takenOn(data, k, day);
+      if (rec && rec.ts >= from) t += doses[k];
+    });
+    return t;
+  }
+
   function stockAt(drug, ts, data) {
     var s = drug && drug.stock;
     if (!s || s.count == null || !isFinite(Number(s.count))) return null;
     var left = Number(s.count);
-    var end = startOfDay(ts);
-    for (var d = addDays(startOfDay(s.asOf), 1); d < end; d = addDays(d, 1)) left -= dailyDose(drug, d);
-    if (data) left -= loggedIntake(drug, data, s.asOf, ts);
+    if (data) {
+      left -= loggedIntake(drug, data, s.asOf, ts);
+      (data.taken || []).forEach(function (rec) {
+        if (rec.ts >= s.asOf && rec.ts <= ts) left -= dosesOn(drug, rec.day)[rec.slot] || 0;
+      });
+    }
     return Math.max(0, Math.round(left * 100) / 100);
   }
 
@@ -697,6 +710,8 @@
       var day = addDays(today, i);
       if (!activeStep(drug, day)) { ended = true; break; }
       var need = dailyDose(drug, day);
+      /* aujourd'hui : les prises déjà confirmées sont déjà retirées du stock restant */
+      if (i === 0 && data && drug.stock) need = Math.max(0, need - takenAmount(drug, data, day, Number(drug.stock.asOf)));
       if (need <= 0) continue;
       regular = true;
       if (left < need) break;
