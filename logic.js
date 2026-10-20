@@ -521,6 +521,8 @@
     stock : { count, asOf } = nombre de comprimés connus à la date asOf.
   */
 
+  function cleanIcon(x) { x = String(x || ''); return /^[a-z0-9]{1,20}$/.test(x) ? x : ''; }
+
   function newDrug(p) {
     p = p || {};
     return {
@@ -533,6 +535,7 @@
       steps: p.steps && p.steps.length ? p.steps : [{ until: '', doses: {} }],
       stock: p.stock || null,
       every: p.every || null,
+      icon: cleanIcon(p.icon),
       sideEffects: p.sideEffects || [],
       note: p.note || ''
     };
@@ -1077,7 +1080,7 @@
   function emptyData() {
     return {
       symptoms: [], meds: [], changes: [], pharmacy: [], notes: [], taken: [],
-      diseases: [], drugs: [], medInfo: {}, causes: {},
+      diseases: [], drugs: [], oldDrugs: [], medInfo: {}, causes: {},
       slots: defaultSlots(), pharmacySettings: defaultPharmacySettings(),
       settings: { windowHours: 6, model: 'gemini-3.5-flash-lite' }
     };
@@ -1116,14 +1119,24 @@
         return y;
       });
     }
+    function cleanDrug(x) {
+      var y = newDrug(copyObj(x));
+      y.diseaseIds = Array.isArray(x.diseaseIds) ? x.diseaseIds.slice() : [];
+      y.slots = (Array.isArray(x.slots) ? x.slots : []).filter(function (k) { return SLOT_KEYS.indexOf(k) >= 0; });
+      y.sideEffects = cleanList(x.sideEffects, 30);
+      y.every = cleanEvery(x.every);
+      if (!(y.stock && isFinite(Number(y.stock.count)) && isFinite(Number(y.stock.asOf)))) y.stock = null;
+      return y;
+    }
     if (Array.isArray(obj.drugs)) {
-      d.drugs = obj.drugs.filter(function (x) { return x && String(x.name || '').trim(); }).map(function (x) {
-        var y = newDrug(copyObj(x));
-        y.diseaseIds = Array.isArray(x.diseaseIds) ? x.diseaseIds.slice() : [];
-        y.slots = (Array.isArray(x.slots) ? x.slots : []).filter(function (k) { return SLOT_KEYS.indexOf(k) >= 0; });
-        y.sideEffects = cleanList(x.sideEffects, 30);
-        y.every = cleanEvery(x.every);
-        if (!(y.stock && isFinite(Number(y.stock.count)) && isFinite(Number(y.stock.asOf)))) y.stock = null;
+      d.drugs = obj.drugs.filter(function (x) { return x && String(x.name || '').trim(); }).map(cleanDrug);
+    }
+    if (Array.isArray(obj.oldDrugs)) {
+      d.oldDrugs = obj.oldDrugs.filter(function (x) { return x && String(x.name || '').trim(); }).map(function (x) {
+        var y = cleanDrug(x);
+        y.stoppedAt = isFinite(Number(x.stoppedAt)) ? Number(x.stoppedAt) : Date.now();
+        y.stockLeft = x.stockLeft != null && isFinite(Number(x.stockLeft)) ? Number(x.stockLeft) : null;
+        y.diseaseNames = cleanList(x.diseaseNames, 20);
         return y;
       });
     }
@@ -1143,7 +1156,39 @@
     return d;
   }
 
+  /* « Je ne prends plus ce traitement » : sort le traitement de la liste active (plus de rappel, de stock ni d'analyse)
+     et le range, avec toutes ses informations, dans data.oldDrugs. */
+  function archiveDrug(data, id, now) {
+    var list = data.drugs || [], i, d = null;
+    for (i = 0; i < list.length; i++) if (list[i].id === id) { d = list[i]; break; }
+    if (!d) return null;
+    var rec = JSON.parse(JSON.stringify(d));
+    rec.stoppedAt = now;
+    rec.stockLeft = stockAt(d, now, data);
+    rec.diseaseNames = (data.diseases || []).filter(function (x) { return (d.diseaseIds || []).indexOf(x.id) >= 0; }).map(function (x) { return x.name; });
+    list.splice(i, 1);
+    data.oldDrugs = data.oldDrugs || [];
+    data.oldDrugs.push(rec);
+    return rec;
+  }
+
+  function restoreDrug(data, id, now) {
+    var list = data.oldDrugs || [], i, rec = null;
+    for (i = 0; i < list.length; i++) if (list[i].id === id) { rec = list[i]; break; }
+    if (!rec) return null;
+    list.splice(i, 1);
+    var ids = (data.diseases || []).map(function (x) { return x.id; });
+    var d = newDrug(rec);
+    d.diseaseIds = (rec.diseaseIds || []).filter(function (k) { return ids.indexOf(k) >= 0; });
+    d.stock = rec.stockLeft != null ? { count: rec.stockLeft, asOf: now } : null;
+    data.drugs.push(d);
+    return d;
+  }
+
   return {
+    archiveDrug: archiveDrug,
+    restoreDrug: restoreDrug,
+    cleanIcon: cleanIcon,
     HOUR: HOUR,
     DAYMS: DAYMS,
     KINDS: KINDS,

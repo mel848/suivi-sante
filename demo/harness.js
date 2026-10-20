@@ -94,6 +94,14 @@
   D.pharmacy.push({ id: nid('p'), name: 'Passage à la pharmacie', ts: at(40, 11, 0), rx: 'quarterly', items: [{ drugId: 'd-levo', name: 'Levothyrox', qty: 90 }], note: '' });
   D.pharmacy.push({ id: nid('p'), name: 'Passage à la pharmacie', ts: at(8, 11, 0), rx: 'monthly', items: [{ drugId: 'd-sert', name: 'Sertraline', qty: 28 }, { drugId: 'd-eso', name: 'Ésoméprazole', qty: 28 }, { drugId: 'd-alp', name: 'Alprazolam', qty: 30 }], note: '' });
 
+  /* Prises confirmées (« Fait ») les jours passés : c'est ce qui fait baisser le stock des traitements réguliers */
+  D.taken = D.taken || [];
+  for (var back = 40; back >= 1; back--) {
+    [['morning', 9], ['evening', 21]].forEach(function (s) {
+      D.taken.push({ id: nid('t'), slot: s[0], day: L.startOfDay(at(back, 0)), ts: at(back, s[1]) });
+    });
+  }
+
   L.updateCauses(D, now, 6);
   store.setItem('suivi-sante-v1', JSON.stringify(D));
   store.setItem('suivi-sante-apikey', 'CLE-FICTIVE-DE-DEMONSTRATION');

@@ -12,6 +12,7 @@ var out = [
   bodyInner,
   '<div id="demo-notif" role="status" aria-live="polite"><div class="app"><span>Suivi Santé</span><span class="m"></span></div><div class="t"></div><div class="b"></div><div class="acts"></div></div>',
   '<script>', read('logic.js'), '</script>',
+  '<script>', read('images.js'), '</script>',
   '<script>', read('demo/ai.js'), '</script>',
   '<script>', read('demo/harness.js'), '</script>',
   '<script>', read('app.js'), '</script>',

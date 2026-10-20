@@ -902,3 +902,28 @@ h3.with-ico, .nm.with-ico { display: flex; align-items: center; gap: 10px; min-w
 .nc-row.ok b { background: color-mix(in srgb, #3ecf8e 25%, transparent); color: #3ecf8e; }
 .nc-row.ko b { background: color-mix(in srgb, #ff6b6b 25%, transparent); color: #ff6b6b; }
 .actions.wrap { flex-wrap: wrap; }
+
+
+/* Illustrations choisies, échelle de la douleur, anciens médicaments */
+.ico.pic, [data-ambiance] .ico.pic { width: 46px; height: 46px; padding: 0; background: none !important; border: 0 !important; box-shadow: none !important; border-radius: 0; }
+.ico.pic.sm { width: 34px; height: 34px; }
+.ico.pic.big { width: 64px; height: 64px; }
+.ico.pic img { width: 100%; height: 100%; object-fit: contain; display: block; pointer-events: none; }
+.ico.editable { cursor: pointer; }
+.pic-current { display: flex; align-items: center; gap: 12px; width: 100%; background: none; border: 0; padding: 4px 0; text-align: left; font: inherit; color: inherit; }
+.pic-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.pic-title { margin: 14px 0 6px; font-size: .95rem; }
+.pic-opt { display: flex; flex-direction: column; align-items: center; gap: 4px; background: none; border: 2px solid transparent; border-radius: 16px; padding: 4px 2px; font: inherit; font-size: .72rem; color: inherit; text-align: center; }
+.pic-opt.on { border-color: var(--accent); background: var(--field); }
+.help-btn { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; margin: 0 6px; padding: 0; border-radius: 50%; border: 1.5px solid currentColor; background: none; color: var(--accent); font: inherit; font-size: .8rem; font-weight: 700; line-height: 1; vertical-align: middle; }
+.lightbox { position: fixed; inset: 0; z-index: 40; background: rgba(3, 5, 20, .94); overflow: auto; padding: 56px 12px 24px; -webkit-overflow-scrolling: touch; }
+.lightbox img { display: block; width: 100%; max-width: 560px; margin: 0 auto; border-radius: 14px; }
+.lightbox .lb-close { position: fixed; top: 10px; right: 12px; z-index: 41; background: rgba(30, 40, 95, .9); color: #fff; }
+.old-drug { border-top: 1px solid var(--line, rgba(128,128,160,.25)); padding: 8px 0; }
+.old-drug summary { display: flex; align-items: center; gap: 10px; cursor: pointer; list-style: none; }
+.old-drug summary::-webkit-details-marker { display: none; }
+.old-drug .ct { min-width: 0; flex: 1; }
+.old-body { padding: 8px 0 2px; }
+.lightbox .lb-hint { text-align: center; color: #b9a6ff; font-size: .8rem; margin: -40px 56px 12px 0; }
+.lightbox.zoom img { width: 135%; max-width: none; margin: 0; }
+.btn.armed { border-color: #ff6b7a; color: #ff8a96; }

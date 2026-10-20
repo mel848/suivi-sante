@@ -139,6 +139,77 @@
   /* Pastille colorée d'un type d'entrée (la couleur ne désigne que ce type) */
   function kindIcon(kind, cls) { return icon(kind, 'kind ' + kind + ' ' + (cls || '')); }
 
+  /* Bouton à confirmer par un second appui (les fenêtres de confirmation du navigateur peuvent être bloquées) */
+  function confirmButton(cls, text, confirmText, style, action) {
+    var timer = null;
+    var b = h('button', { class: cls, type: 'button', text: text, style: style || null });
+    b.addEventListener('click', function () {
+      if (timer) { clearTimeout(timer); timer = null; action(); return; }
+      b.textContent = confirmText;
+      b.classList.add('armed');
+      timer = setTimeout(function () { timer = null; b.textContent = text; b.classList.remove('armed'); }, 5000);
+    });
+    return b;
+  }
+
+  /* Illustration choisie par l'utilisateur (images.js), sinon l'icône par défaut */
+  var IMG = window.SUIVI_IMG || { icons: {}, groups: [], pain: '' };
+
+  function artIcon(id, fallback, kind, cls) {
+    var src = id && IMG.icons && IMG.icons[id];
+    if (!src) return kind ? kindIcon(fallback, cls) : icon(fallback, 'neutral ' + (cls || ''));
+    return h('span', { class: 'ico pic ' + (cls || ''), 'aria-hidden': 'true' }, h('img', { src: src, alt: '', draggable: 'false' }));
+  }
+
+  /* Grille de choix : « par défaut » puis les illustrations par catégorie */
+  function iconPicker(current, fallback, kind, onPick) {
+    var wrap = h('div', { class: 'pic-picker' });
+    function opt(id, label, ico) {
+      return h('button', { type: 'button', class: 'pic-opt' + ((current || '') === id ? ' on' : ''), 'aria-pressed': (current || '') === id ? 'true' : 'false', 'aria-label': label,
+        onclick: function () { onPick(id); } }, ico, h('span', { text: label }));
+    }
+    wrap.appendChild(h('div', { class: 'pic-grid' }, opt('', 'Par défaut', artIcon('', fallback, kind, 'big'))));
+    (IMG.groups || []).forEach(function (g) {
+      wrap.appendChild(h('h3', { class: 'pic-title', text: g[0] }));
+      wrap.appendChild(h('div', { class: 'pic-grid' }, g[1].map(function (it) { return opt(it[0], it[1], artIcon(it[0], fallback, kind, 'big')); })));
+    });
+    return wrap;
+  }
+
+  /* Rend l'icône d'une carte cliquable : ouvre le choix d'illustration sans ouvrir la fiche */
+  function editableIcon(item, fallback, kind) {
+    var ic = artIcon(item.icon, fallback, kind);
+    ic.setAttribute('role', 'button');
+    ic.removeAttribute('aria-hidden');
+    ic.setAttribute('tabindex', '0');
+    ic.setAttribute('aria-label', 'Changer l’illustration');
+    ic.classList.add('editable');
+    function open(e) {
+      e.stopPropagation(); e.preventDefault();
+      openSheet('Choisir une illustration', iconPicker(item.icon, fallback, kind, function (id) {
+        item.icon = L.cleanIcon(id);
+        save(); closeSheet(); render();
+      }));
+    }
+    ic.addEventListener('click', open);
+    ic.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') open(e); });
+    return ic;
+  }
+
+  /* Champ « Illustration » dans un formulaire */
+  function iconField(start, fallback, kind) {
+    var cur = L.cleanIcon(start), open = false;
+    var holder = h('div');
+    function draw() {
+      holder.textContent = '';
+      holder.appendChild(h('button', { type: 'button', class: 'pic-current', 'aria-expanded': open ? 'true' : 'false', onclick: function () { open = !open; draw(); } },
+        artIcon(cur, fallback, kind), h('span', { class: 'small muted', text: open ? 'Choisis une illustration' : 'Appuie pour changer' })));
+      if (open) holder.appendChild(iconPicker(cur, fallback, kind, function (id) { cur = L.cleanIcon(id); open = false; draw(); }));
+    }
+    draw();
+    return { el: field('Illustration (facultatif)', holder), get: function () { return cur; } };
+  }
+
   function emptyCard(name, text, cls) {
     return h('div', { class: 'card empty-card ' + (cls || '') }, icon(name, 'neutral big'), h('p', { text: text }));
   }
@@ -246,7 +317,9 @@
           scale.appendChild(b);
         })(i);
       }
-      els.push(h('div', { class: 'field' }, h('span', { class: 'lbl', text: 'Intensité (facultatif, appuie à nouveau pour retirer)' }), scale));
+      els.push(h('div', { class: 'field' }, h('span', { class: 'lbl' }, h('span', { text: 'Intensité' }),
+        h('button', { type: 'button', class: 'help-btn', 'aria-label': 'Voir l’échelle de la douleur', text: '?', onclick: function () { openImage(IMG.pain, 'Échelle de la douleur'); } }),
+        h('span', { text: '(facultatif, appuie à nouveau pour retirer)' })), scale));
       duration = h('input', { type: 'text', id: 'f-duration', value: v.duration || '', placeholder: 'Ex. 2 h, toute la matinée', 'aria-label': 'Durée' });
       els.push(h('label', { class: 'field' }, h('span', { class: 'lbl', text: 'Durée (facultatif)' }), duration));
       note = h('input', { type: 'text', id: 'f-note', value: v.note || '', placeholder: 'Ex. après le repas', 'aria-label': 'Note' });
@@ -357,7 +430,25 @@
     else removeSheet();
   }
 
-  window.addEventListener('popstate', removeSheet);
+  /* Image plein écran (échelle de la douleur) : fermable avec ✕, en touchant, ou avec le retour du téléphone */
+  var lightEl = null;
+  function openImage(src, alt) {
+    if (!src || lightEl) return;
+    lightEl = h('div', { class: 'lightbox', role: 'dialog', 'aria-modal': 'true', 'aria-label': alt, onclick: closeImage },
+      h('button', { class: 'icon-btn lb-close', type: 'button', 'aria-label': 'Fermer', text: '✕', onclick: closeImage }),
+      h('div', { class: 'lb-hint', text: 'Touche l’image pour agrandir' }),
+      h('img', { src: src, alt: alt, onclick: function (e) { e.stopPropagation(); lightEl.classList.toggle('zoom'); } }));
+    document.body.appendChild(lightEl);
+    try { history.pushState({ lb: 1 }, ''); } catch (e) { /* sans importance */ }
+  }
+  var lightClosing = false;
+  function closeImage() {
+    if (!lightEl || lightClosing) return;
+    if (history.state && history.state.lb) { lightClosing = true; history.back(); } else removeImage();
+  }
+  function removeImage() { lightClosing = false; if (lightEl) { lightEl.remove(); lightEl = null; } }
+
+  window.addEventListener('popstate', function () { if (lightEl) removeImage(); else removeSheet(); });
 
   function defaultTsFor(day) {
     return day === startOfDay(Date.now()) ? Date.now() : day + 12 * 3600 * 1000;
@@ -1133,6 +1224,41 @@
     return card;
   }
 
+  /* Anciens médicaments : traitements arrêtés, rangés avec toutes leurs informations */
+  function oldDrugsCard() {
+    var list = (data.oldDrugs || []).slice().sort(function (a, b) { return b.stoppedAt - a.stoppedAt; });
+    var card = h('div', { class: 'card' }, h('h2', { text: 'Anciens médicaments' }));
+    if (!list.length) {
+      card.appendChild(h('p', { class: 'small muted', text: 'Aucun pour le moment. Dans un traitement, « Je ne prends plus ce traitement » le range ici avec sa dose et son stock.' }));
+      return card;
+    }
+    var fmt = function (ts) { return new Date(ts).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' }); };
+    list.forEach(function (d) {
+      var lines = [];
+      if (d.diseaseNames && d.diseaseNames.length) lines.push(['Pour', d.diseaseNames.join(', ')]);
+      if (d.action) lines.push(['Action', d.action]);
+      lines.push(['Prises', d.slots.length ? L.posologyText(d) : L.cleanEvery(d.every) ? 'Prise ' + L.everyText(d) : 'Pris si besoin']);
+      lines.push(['Stock à l’arrêt', d.stockLeft == null ? 'Non renseigné' : doseLabel(d.stockLeft)]);
+      if (d.sideEffects && d.sideEffects.length) lines.push(['Effets indésirables', d.sideEffects.join(', ')]);
+      if (d.note) lines.push(['Notes', d.note]);
+      card.appendChild(h('details', { class: 'old-drug' },
+        h('summary', null, artIcon(d.icon, 'treatment', true, 'sm'),
+          h('span', { class: 'ct' }, h('b', { text: d.name + (d.strength ? ' ' + d.strength : '') }), h('span', { class: 'small muted', style: 'display:block', text: 'Arrêté le ' + fmt(d.stoppedAt) }))),
+        h('div', { class: 'old-body' },
+          lines.map(function (l) { return h('div', { class: 'slot-line' }, h('span', { class: 'small muted', text: l[0] }), h('span', { class: 'small', style: 'text-align:right', text: l[1] })); }),
+          h('div', { class: 'actions wrap' },
+            h('button', { class: 'btn small', type: 'button', text: 'Reprendre ce traitement', onclick: function () {
+              L.restoreDrug(data, d.id, Date.now());
+              save(); render(); toast('Remis dans Mes traitements.');
+            } }),
+            confirmButton('btn small danger', 'Supprimer définitivement', 'Appuie encore pour confirmer', null, function () {
+              data.oldDrugs.splice(data.oldDrugs.indexOf(d), 1);
+              save(); render(); toast('Supprimé.');
+            })))));
+    });
+    return card;
+  }
+
   function viewSettings() {
     var frag = h('div');
 
@@ -1197,9 +1323,11 @@
         }
       })));
 
+    frag.appendChild(oldDrugsCard());
+
     /* Sauvegarde */
     var exportBox = h('textarea', { readonly: true, id: 's-export', 'aria-label': 'Sauvegarde', style: 'min-height:80px' });
-    exportBox.value = JSON.stringify({ taken: data.taken, symptoms: data.symptoms, meds: data.meds, changes: data.changes, pharmacy: data.pharmacy, notes: data.notes, diseases: data.diseases, drugs: data.drugs, medInfo: data.medInfo, slots: data.slots, pharmacySettings: data.pharmacySettings, settings: { windowHours: data.settings.windowHours } });
+    exportBox.value = JSON.stringify({ taken: data.taken, symptoms: data.symptoms, meds: data.meds, changes: data.changes, pharmacy: data.pharmacy, notes: data.notes, diseases: data.diseases, drugs: data.drugs, oldDrugs: data.oldDrugs, medInfo: data.medInfo, slots: data.slots, pharmacySettings: data.pharmacySettings, settings: { windowHours: data.settings.windowHours } });
     var importBox = h('textarea', { id: 's-import', placeholder: 'Colle ici une sauvegarde à importer', 'aria-label': 'Importer une sauvegarde', style: 'min-height:80px' });
 
     frag.appendChild(h('div', { class: 'card' },
@@ -1230,7 +1358,7 @@
           var d = L.normalizeImported(parsed);
           if (!d) { toast('Ce texte n’est pas une sauvegarde valide.'); return; }
           var added = 0;
-          ['symptoms', 'meds', 'changes', 'pharmacy', 'notes', 'diseases', 'drugs', 'taken'].forEach(function (k) {
+          ['symptoms', 'meds', 'changes', 'pharmacy', 'notes', 'diseases', 'drugs', 'oldDrugs', 'taken'].forEach(function (k) {
             var have = {};
             data[k].forEach(function (x) { have[x.id] = 1; });
             d[k].forEach(function (x) { if (!have[x.id]) { data[k].push(x); added++; } });
@@ -1247,7 +1375,7 @@
       h('button', {
         class: 'btn danger block', type: 'button', text: 'Effacer toutes mes données', onclick: function () {
           if (!window.confirm('Effacer définitivement toutes les entrées de ce téléphone ? Pense à copier ta sauvegarde avant.')) return;
-          data.taken = []; data.symptoms = []; data.meds = []; data.changes = []; data.pharmacy = []; data.notes = []; data.diseases = []; data.drugs = []; data.medInfo = {}; data.causes = {};
+          data.taken = []; data.symptoms = []; data.meds = []; data.changes = []; data.pharmacy = []; data.notes = []; data.diseases = []; data.drugs = []; data.oldDrugs = []; data.medInfo = {}; data.causes = {};
           save();
           render();
           toast('Données effacées.');
@@ -1523,7 +1651,7 @@
     data.diseases.forEach(function (d) {
       var drugs = data.drugs.filter(function (x) { return (x.diseaseIds || []).indexOf(d.id) >= 0; });
       var card = h('button', { class: 'card tapcard', type: 'button', onclick: function () { openDiseaseForm(d); } },
-        h('div', { class: 'card-head' }, icon('heart', 'neutral'),
+        h('div', { class: 'card-head' }, editableIcon(d, 'heart', false),
           h('div', { class: 'ct' }, h('h3', { text: d.name }),
             d.diagnosed ? h('div', { class: 'small muted', text: 'Depuis ' + new Date(L.parseYmd(d.diagnosed) || 0).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' }) }) : null)));
       if (d.symptoms.length) {
@@ -1544,6 +1672,7 @@
     var name = h('input', { type: 'text', id: 'd-name', value: item ? item.name : '', placeholder: 'Ex. Migraine chronique', autocomplete: 'off', 'aria-label': 'Nom de la maladie' });
     var date = h('input', { type: 'date', id: 'd-date', value: item ? item.diagnosed : '', max: L.ymd(Date.now()), 'aria-label': 'Date du diagnostic' });
     var sym = tagEditor(item ? item.symptoms : [], 'Ajouter un symptôme', 'Nouveau symptôme');
+    var art = iconField(item ? item.icon : '', 'heart', false);
     var note = h('textarea', { id: 'd-note', placeholder: 'Ex. suivie par le Dr Martin', 'aria-label': 'Notes', style: 'min-height:70px' });
     note.value = item ? item.note : '';
 
@@ -1606,6 +1735,7 @@
 
     var body = h('div', null,
       field('Nom de la maladie', name),
+      art.el,
       field('Date du diagnostic (facultatif)', date),
       field('Symptômes principaux (facultatif)', sym.el),
       aiBtn, suggest,
@@ -1618,7 +1748,7 @@
           class: 'btn primary', type: 'button', text: 'Enregistrer', onclick: function () {
             var nm = name.value.trim();
             if (!nm) { toast('Indique le nom de la maladie.'); return; }
-            var vals = { name: nm, diagnosed: date.value || '', symptoms: sym.get(), note: note.value.trim() };
+            var vals = { name: nm, diagnosed: date.value || '', symptoms: sym.get(), note: note.value.trim(), icon: art.get() };
             if (editing) Object.assign(item, vals); else { vals.id = id; data.diseases.push(vals); }
             data.drugs.forEach(function (d) {
               var has = d.diseaseIds.indexOf(id) >= 0, want = linked.indexOf(d.id) >= 0;
@@ -1711,7 +1841,7 @@
     data.drugs.forEach(function (d) {
       var st = stockLine(d, now);
       var card = h('button', { class: 'card tapcard', type: 'button', onclick: function () { openDrugForm(d); } },
-        h('div', { class: 'card-head' }, kindIcon('treatment'),
+        h('div', { class: 'card-head' }, editableIcon(d, 'treatment', true),
           h('div', { class: 'ct' }, h('h3', { text: d.name + (d.strength ? ' ' + d.strength : '') }),
             d.action ? h('div', { class: 'small muted', text: d.action }) : null)));
       var dn = diseaseNames(d.diseaseIds);
@@ -1857,6 +1987,7 @@
     var every = L.cleanEvery(d.every) || { n: 2, unit: 'days', from: L.ymd(Date.now()) };
     var everyOn = !!L.cleanEvery(d.every);
 
+    var art = iconField(d.icon, 'treatment', true);
     var name = h('input', { type: 'text', id: 'm-name', value: d.name, placeholder: 'Ex. Sertraline', autocomplete: 'off', 'aria-label': 'Nom du médicament' });
     /* Dosage : nombre + unité sur le côté (g en haut, mg par défaut, µg) */
     var UNITS = ['g', 'mg', 'µg'];
@@ -2063,7 +2194,8 @@
         name: nm, strength: strength.get(), action: action.value.trim(), diseaseIds: diseaseIds.slice(),
         slots: slots.slice(), steps: cleaned, sideEffects: side.get(), note: note.value.trim(),
         stock: item ? item.stock : null,
-        every: everyOn ? L.cleanEvery(every) : null
+        every: everyOn ? L.cleanEvery(every) : null,
+        icon: art.get()
       };
       if (everyOn && !vals.every) { toast('Indique un nombre de 1 ou plus.'); return; }
       var sv = num(stock.value);
@@ -2076,6 +2208,7 @@
 
     var body = h('div', null,
       field('Nom du médicament', name),
+      art.el,
       aiBtn,
       h('div', { style: 'height:12px' }),
       field('Dosage du comprimé (facultatif)', strength.el),
@@ -2092,6 +2225,11 @@
         h('button', { class: 'btn', type: 'button', text: 'Annuler', onclick: closeSheet }),
         h('button', { class: 'btn primary', type: 'button', text: 'Enregistrer', onclick: save1 })));
     if (editing) {
+      body.appendChild(h('p', { class: 'small muted', style: 'margin:14px 0 0', text: 'Arrêt du traitement : il est rangé dans Réglages > Anciens médicaments avec sa dose et son stock, sans rappel ni suivi de stock.' }));
+      body.appendChild(confirmButton('btn block', 'Je ne prends plus ce traitement', 'Appuie encore pour confirmer', 'margin-top:8px', function () {
+        L.archiveDrug(data, item.id, Date.now());
+        save(); closeSheet(); render(); toast('Rangé dans « Anciens médicaments » (Réglages).');
+      }));
       body.appendChild(h('button', {
         class: 'btn danger block', type: 'button', style: 'margin-top:10px', text: 'Supprimer ce traitement', onclick: function () {
           if (!window.confirm('Supprimer ce traitement ?')) return;

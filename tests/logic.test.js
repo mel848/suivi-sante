@@ -19,9 +19,11 @@ t('posologie progressive et stock', function () {
     stock: { count: 10, asOf: day(-3) } });
   assert.strictEqual(L.dailyDose(d, L.startOfDay(day(-2))), 0.5);
   assert.strictEqual(L.dailyDose(d, L.startOfDay(day(0))), 1);
-  /* jours -2 et -1 comptés : 0,5 + 0,5 -> reste 9 */
-  assert.strictEqual(L.stockAt(d, now), 9);
-  var s = L.stockInfo(d, now);
+  /* sans prise confirmée : rien n'est retiré ; jours -2 et -1 confirmés : 0,5 + 0,5 -> reste 9 */
+  assert.strictEqual(L.stockAt(d, now, L.emptyData()), 10);
+  var D = L.emptyData(); L.markTaken(D, 'morning', day(-2), day(-2)); L.markTaken(D, 'morning', day(-1), day(-1));
+  assert.strictEqual(L.stockAt(d, now, D), 9);
+  var s = L.stockInfo(d, now, D);
   assert.strictEqual(s.daysLeft, 9);
   assert.strictEqual(L.ymd(s.lastDay), L.ymd(day(8)));
   assert(!s.low);
@@ -106,7 +108,6 @@ t('réponses IA', function () {
   assert.strictEqual(L.parseAdvice('{"note":" Salut "}'), 'Salut');
 });
 
-console.log(n + ' groupes de tests réussis');
 
 /* Prise progressive avec dose en mg : une gélule par prise pour le stock */
 (function () {
@@ -119,7 +120,10 @@ console.log(n + ' groupes de tests réussis');
   assert.strictEqual(L.slotDrugs(d, 'morning', day1)[0].label, '25 mg');
   assert.strictEqual(L.slotDrugs(d, 'morning', day2)[0].label, '50 mg');
   assert.ok(/25 mg matin jusqu/.test(L.posologyText(drug)) && /puis 50 mg matin/.test(L.posologyText(drug)), L.posologyText(drug));
-  assert.strictEqual(L.stockAt(drug, new Date(2026, 9, 6).getTime()), 6);
+  var DD = L.emptyData();
+  [2, 3, 4, 5].forEach(function (k) { var x = new Date(2026, 9, k, 9).getTime(); L.markTaken(DD, 'morning', x, x); });
+  assert.strictEqual(L.stockAt(drug, new Date(2026, 9, 6).getTime(), DD), 6);
+  assert.strictEqual(L.stockAt(drug, new Date(2026, 9, 6).getTime(), L.emptyData()), 10);
   console.log('prise progressive en mg : ok');
 })();
 
@@ -140,7 +144,7 @@ console.log(n + ' groupes de tests réussis');
   assert.strictEqual(L.medQty({ dose: '1 g' }), 1);
   assert.strictEqual(L.stockAt(dol, now, d), 16 - 2 - 2 - 1);
   assert.strictEqual(L.stockAt(dol, now), 16);
-  assert.strictEqual(L.stockAt(alp, now, d), 30 - 3 - 1);
+  assert.strictEqual(L.stockAt(alp, now, d), 30 - 1); /* la prise régulière ne se retire que lorsqu’elle est confirmée */
   assert.strictEqual(L.stockInfo(dol, now, d).daysLeft, null);
   assert.ok(L.stockInfo(dol, now, d).remaining === 11 && !L.stockInfo(dol, now, d).low);
   assert.strictEqual(L.matchDrug(d, 'Doliprane 1000').id, 'x');
@@ -148,19 +152,26 @@ console.log(n + ' groupes de tests réussis');
   console.log('stock des prises si besoin : ok');
 })();
 
-/* « Fait » : prise confirmée une fois par jour, sans toucher au stock (déjà décompté par la posologie) */
+/* « Fait » : une prise confirmée retire tout de suite ses comprimés du stock ; sans « Fait », rien n'est retiré */
 (function () {
   var assert = require('assert'), L = require('../logic.js');
   var d = L.emptyData(), day = new Date(2026, 9, 5, 15).getTime();
   var drug = L.newDrug({ id: 'z', name: 'Sertraline', slots: ['morning'], steps: [{ until: '', doses: { morning: 1 } }], stock: { count: 10, asOf: new Date(2026, 9, 1).getTime() } });
   d.drugs.push(drug);
-  var before = L.stockAt(drug, day, d);
+  assert.strictEqual(L.stockAt(drug, day, d), 10);
   assert.strictEqual(L.takenOn(d, 'morning', day), null);
   var r = L.markTaken(d, 'morning', day, day);
   assert.strictEqual(L.markTaken(d, 'morning', day, day + 1).id, r.id);
   assert.strictEqual(d.taken.length, 1);
-  assert.strictEqual(L.stockAt(drug, day, d), before);
+  assert.strictEqual(L.stockAt(drug, day, d), 9);
+  /* le lendemain : toujours 9 (pas de retrait pour une prise non confirmée, pas de double retrait) */
+  var next = new Date(2026, 9, 6, 15).getTime();
+  assert.strictEqual(L.stockAt(drug, next, d), 9);
+  assert.strictEqual(L.stockInfo(drug, day, d).remaining, 9);
+  /* durée restante : aujourd'hui est déjà fait, restent 9 prises de demain au 14 */
+  assert.strictEqual(L.stockInfo(drug, day, d).daysLeft, 10);
   L.unmarkTaken(d, 'morning', day);
+  assert.strictEqual(L.stockAt(drug, day, d), 10);
   assert.strictEqual(L.takenOn(d, 'morning', day), null);
   var n = L.normalizeImported({ taken: [{ slot: 'morning', day: 1, ts: 2 }, { slot: 'x', day: 1, ts: 2 }] });
   assert.strictEqual(n.taken.length, 1);
@@ -181,7 +192,9 @@ console.log(n + ' groupes de tests réussis');
   assert.strictEqual(L.dailyDose(d2, t(2026, 9, 2)), 0);
   assert.strictEqual(L.dailyDose(d2, t(2026, 9, 3)), 1);
   /* stock : prises les 3, 5, 7 -> consommées avant le 8 = 3 */
-  assert.strictEqual(L.stockAt(d2, t(2026, 9, 8), null), 7);
+  var D2 = L.emptyData(); [3, 5, 7].forEach(function (k) { L.markTaken(D2, 'morning', t(2026, 9, k), t(2026, 9, k)); });
+  assert.strictEqual(L.stockAt(d2, t(2026, 9, 8), D2), 7);
+  assert.strictEqual(L.stockAt(d2, t(2026, 9, 8), L.emptyData()), 10);
   var w = mk({ n: 1, unit: 'weeks', from: '2026-10-01' });
   assert.ok(L.dueOn(w, t(2026, 9, 8)) && !L.dueOn(w, t(2026, 9, 9)));
   var m = mk({ n: 1, unit: 'months', from: '2026-01-31' });
@@ -191,8 +204,8 @@ console.log(n + ' groupes de tests réussis');
   assert.strictEqual(L.posologyText(d2).slice(-16), 'tous les 2 jours');
   assert.strictEqual(L.cleanEvery({ n: 0, unit: 'days', from: '2026-10-01' }), null);
   var info = L.stockInfo(mk({ n: 2, unit: 'days', from: '2026-10-01' }, 10), t(2026, 9, 10), null);
-  assert.strictEqual(info.remaining, 6);
-  assert.strictEqual(info.daysLeft, 12);
+  assert.strictEqual(info.remaining, 10);
+  assert.strictEqual(info.daysLeft, 20);
   assert.strictEqual(L.normalizeImported({ drugs: [{ name: 'A', every: { n: 3, unit: 'weeks', from: '2026-10-01' } }, { name: 'B', every: { n: 3, unit: 'x' } }] }).drugs.map(function (z) { return !!z.every; }).join(), 'true,false');
   console.log('prise intermittente : ok');
 })();
@@ -211,3 +224,30 @@ console.log(n + ' groupes de tests réussis');
   assert.strictEqual(L.nextDose(L.newDrug({ name: 'x' }), t(9), d), null);
   console.log('prochaine prise : ok');
 })();
+
+t('archivage d\'un traitement', function () {
+  var D = L.emptyData();
+  D.diseases.push({ id: 'dz', name: 'Migraine', symptoms: [], diagnosed: '', note: '' });
+  var d = L.newDrug({ name: 'Zolpi', strength: '10 mg', slots: ['morning'], diseaseIds: ['dz'], icon: 'gelule', stock: { count: 10, asOf: day(-3) },
+    steps: [{ until: '', doses: { morning: 2 } }] });
+  D.drugs.push(d);
+  L.markTaken(D, 'morning', day(-2), day(-2));
+  var rec = L.archiveDrug(D, d.id, now);
+  assert.strictEqual(D.drugs.length, 0);
+  assert.strictEqual(D.oldDrugs.length, 1);
+  assert.strictEqual(rec.stockLeft, 8);
+  assert.deepStrictEqual(rec.diseaseNames, ['Migraine']);
+  assert.strictEqual(rec.icon, 'gelule');
+  assert.strictEqual(rec.steps[0].doses.morning, 2);
+  /* aller-retour par sauvegarde */
+  var N = L.normalizeImported(JSON.parse(JSON.stringify(D)));
+  assert.strictEqual(N.oldDrugs[0].stockLeft, 8);
+  assert.strictEqual(N.oldDrugs[0].stoppedAt, now);
+  var back = L.restoreDrug(D, d.id, now);
+  assert.strictEqual(D.oldDrugs.length, 0);
+  assert.strictEqual(back.stock.count, 8);
+  assert.deepStrictEqual(back.diseaseIds, ['dz']);
+  assert.strictEqual(L.cleanIcon('<x>'), '');
+});
+
+console.log(n + ' groupes de tests réussis');
