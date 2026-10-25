@@ -65,7 +65,7 @@
   }
 
   function saveChat() {
-    try { localStorage.setItem(CHATSTORE, JSON.stringify(ui.chat.slice(-60))); } catch (e) { /* sans importance */ }
+    try { localStorage.setItem(CHATSTORE, JSON.stringify(ui.chat.slice(-300))); } catch (e) { /* sans importance */ }
   }
 
   function arrFor(kind) { return data[L.ARRAY_OF[kind]]; }
@@ -125,7 +125,8 @@
     bell: '<path d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 2h-15z"/><path d="M10 21h4"/>',
     calendar: '<rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/>',
     chart: '<path d="M4 19V9M10 19V5M16 19v-7M21 19H3"/>',
-    check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>'
+    check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
+    search: '<circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/>'
   };
 
   function icon(name, cls) {
@@ -736,7 +737,7 @@
 
   function msgView(m) {
     var bubble = h('div', { class: 'bubble', text: m.text });
-    var wrap = h('div', { class: 'msg ' + m.role }, m.role === 'ai' ? h('div', { class: 'ai-row' }, icon('spark', 'avatar'), bubble) : bubble);
+    var wrap = h('div', { class: 'msg ' + m.role, 'data-mid': m.id }, m.role === 'ai' ? h('div', { class: 'ai-row' }, icon('spark', 'avatar'), bubble) : bubble);
     if (m.role === 'ai' && m.events && m.events.length) wrap.appendChild(proposalCard(m));
     return wrap;
   }
@@ -891,6 +892,117 @@
     });
   }
 
+  /* ---------- Recherche (calendrier et conversation) ---------- */
+
+  function fold(x) { return String(x == null ? '' : x).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase(); }
+  function matchesAll(hay, terms) { for (var i = 0; i < terms.length; i++) if (hay.indexOf(terms[i]) < 0) return false; return true; }
+  function termsOf(q) { return fold(q).split(/\s+/).filter(Boolean); }
+
+  function entryText(kind, it) {
+    var t = [KIND_LABEL[kind], KIND_SHORT[kind]];
+    Object.keys(it).forEach(function (k) {
+      var v = it[k];
+      if (k === 'id' || k === 'ts' || k === 'endTs') return;
+      if (typeof v === 'string' || typeof v === 'number') t.push(v);
+      else if (Array.isArray(v)) v.forEach(function (x) { t.push(typeof x === 'object' && x ? (x.name || '') : x); });
+    });
+    t.push(new Date(it.ts).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }));
+    return fold(t.join(' '));
+  }
+
+  function searchButton(label, onclick) {
+    return h('button', { class: 'search-btn', type: 'button', onclick: onclick }, icon('search', 'neutral sm'), h('span', { text: label }));
+  }
+
+  /* Recherche dans toutes les saisies : texte, nom, note, dose, date… Touche un résultat pour aller à son jour. */
+  function openEntrySearch() {
+    var input = h('input', { type: 'search', id: 'q-entries', placeholder: 'Ex. migraine, Nefopam, octobre…', autocomplete: 'off', 'aria-label': 'Rechercher une saisie' });
+    var info = h('div', { class: 'small muted', style: 'margin:8px 0' });
+    var out = h('div', { class: 'search-results' });
+    var kindFilter = null;
+    var chips = h('div', { class: 'chips' });
+    function drawChips() {
+      chips.textContent = '';
+      chips.appendChild(h('button', { type: 'button', class: 'chip' + (kindFilter ? '' : ' on'), text: 'Tout', onclick: function () { kindFilter = null; drawChips(); run(); } }));
+      KINDS.forEach(function (k) {
+        chips.appendChild(h('button', { type: 'button', class: 'chip' + (kindFilter === k ? ' on' : ''), text: KIND_SHORT[k], onclick: function () { kindFilter = kindFilter === k ? null : k; drawChips(); run(); } }));
+      });
+    }
+    function run() {
+      var terms = termsOf(input.value);
+      out.textContent = '';
+      if (!terms.length && !kindFilter) { info.textContent = 'Écris un mot pour retrouver une saisie ancienne.'; return; }
+      var res = [];
+      KINDS.forEach(function (k) {
+        if (kindFilter && kindFilter !== k) return;
+        (arrFor(k) || []).forEach(function (it) { if (!terms.length || matchesAll(entryText(k, it), terms)) res.push({ kind: k, it: it }); });
+      });
+      res.sort(function (a, b) { return b.it.ts - a.it.ts; });
+      info.textContent = res.length ? res.length + ' résultat' + (res.length > 1 ? 's' : '') + (res.length > 80 ? ' (les 80 plus récents affichés)' : '') : 'Aucune saisie trouvée.';
+      res.slice(0, 80).forEach(function (r) {
+        var sub = entrySub(r.kind, r.it);
+        out.appendChild(h('button', {
+          class: 'entry', type: 'button', onclick: function () {
+            var d = startOfDay(r.it.ts);
+            ui.tab = 'calendar'; ui.month = { y: new Date(d).getFullYear(), m: new Date(d).getMonth() }; ui.selDay = d; ui.scrollPanel = true; ui.animate = true;
+            closeSheet(); render();
+          }
+        }, kindIcon(r.kind),
+          h('div', { class: 'meta' },
+            h('div', { class: 'kind', text: KIND_LABEL[r.kind] }),
+            h('div', { class: 'name', text: r.it.name }),
+            sub ? h('div', { class: 'sub', text: sub }) : null),
+          h('div', { class: 'time', text: new Date(r.it.ts).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: '2-digit' }) })));
+      });
+    }
+    input.addEventListener('input', run);
+    drawChips(); run();
+    openSheet('Rechercher une saisie', h('div', null, input, h('div', { style: 'height:8px' }), chips, info, out));
+    setTimeout(function () { try { input.focus(); } catch (e) { /* sans importance */ } }, 250);
+  }
+
+  /* Recherche dans la conversation : touche un résultat pour retrouver le message */
+  function openChatSearch() {
+    var input = h('input', { type: 'search', id: 'q-chat', placeholder: 'Un mot de la conversation…', autocomplete: 'off', 'aria-label': 'Rechercher dans la conversation' });
+    var info = h('div', { class: 'small muted', style: 'margin:8px 0' });
+    var out = h('div', { class: 'search-results' });
+    function textOf(m) {
+      var t = [m.text || ''];
+      (m.events || []).forEach(function (ev) { t.push(ev.name || '', ev.detail || ''); });
+      return t.join(' · ');
+    }
+    function run() {
+      var terms = termsOf(input.value);
+      out.textContent = '';
+      if (!terms.length) { info.textContent = 'Écris un mot pour retrouver un ancien message.'; return; }
+      var res = ui.chat.filter(function (m) { return matchesAll(fold(textOf(m)), terms); }).reverse();
+      info.textContent = res.length ? res.length + ' message' + (res.length > 1 ? 's' : '') : 'Aucun message trouvé.';
+      res.slice(0, 80).forEach(function (m) {
+        var full = textOf(m), at = fold(full).indexOf(terms[0]);
+        var from = Math.max(0, (at < 0 ? 0 : at) - 30);
+        var snip = (from > 0 ? '…' : '') + full.slice(from, from + 110) + (full.length > from + 110 ? '…' : '');
+        out.appendChild(h('button', {
+          class: 'entry', type: 'button', onclick: function () {
+            closeSheet();
+            ui.stickBottom = false; render();
+            setTimeout(function () {
+              var el = document.querySelector('[data-mid="' + m.id + '"]');
+              if (!el) { toast('Message introuvable.'); return; }
+              el.scrollIntoView({ block: 'center' });
+              el.classList.add('flash');
+              setTimeout(function () { el.classList.remove('flash'); }, 2200);
+            }, 200);
+          }
+        }, icon(m.role === 'ai' ? 'spark' : 'note', 'neutral'),
+          h('div', { class: 'meta' }, h('div', { class: 'kind', text: m.role === 'ai' ? 'IA' : 'Toi' }), h('div', { class: 'sub', style: 'white-space:normal', text: snip }))));
+      });
+    }
+    input.addEventListener('input', run);
+    run();
+    openSheet('Rechercher dans la conversation', h('div', null, input, info, out));
+    setTimeout(function () { try { input.focus(); } catch (e) { /* sans importance */ } }, 250);
+  }
+
   /* ---------- Onglet : Calendrier ---------- */
 
   function shiftMonth(delta) {
@@ -907,6 +1019,7 @@
     var map = L.entriesByDay(data);
     var todayTs = startOfDay(Date.now());
 
+    frag.appendChild(searchButton('Rechercher une saisie', openEntrySearch));
     frag.appendChild(h('div', { class: 'cal-head' },
       h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Mois précédent', text: '‹', onclick: function () { shiftMonth(-1); } }),
       h('h2', { text: new Date(y, m, 1).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' }) }),
@@ -2360,6 +2473,7 @@
     go(b.getAttribute('data-tab'));
   });
 
+  document.getElementById('chat-search').addEventListener('click', openChatSearch);
   document.getElementById('chat-form').addEventListener('submit', function (e) { e.preventDefault(); submitChat(); });
   document.getElementById('chat-input').addEventListener('input', autoGrow);
   document.getElementById('chat-input').addEventListener('keydown', function (e) {
